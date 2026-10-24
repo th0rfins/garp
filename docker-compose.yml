@@ -1,0 +1,12 @@
+services:
+  garp:
+    build: .
+    container_name: garp
+    ports:
+      - "8000:8000"
+    volumes:
+      - garp-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  garp-data:

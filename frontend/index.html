@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>GARP — fleet pesanan Grab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ============ ICON RAIL ============ -->
+<aside class="rail">
+  <button class="rail-logo" data-page="add" title="Tempel link">+</button>
+  <nav class="rail-nav">
+    <button class="rail-btn active" data-page="map" title="Peta">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 20l-6-2V4l6 2 6-2 6 2v14l-6-2-6 2zM9 6v14M15 4v14"/></svg>
+    </button>
+    <button class="rail-btn" data-page="orders" title="Pesanan">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+    </button>
+    <button class="rail-btn" data-page="analytics" title="Analitik">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18M7 15v3M12 10v8M17 6v12"/></svg>
+    </button>
+  </nav>
+</aside>
+
+<!-- ============ MAIN ============ -->
+<div class="frame">
+
+  <!-- ============ PAGE: MAP (clean, no header text) ============ -->
+  <section class="page active" id="page-map">
+    <div class="map-canvas">
+      <div id="bigmap"></div>
+
+      <!-- Floating order card (collapsed to a slim bar on mobile) -->
+      <div class="float-card" id="float-card">
+        <button class="fc-toggle" id="fc-toggle" aria-label="Buka/tutup detail">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="fc-chev"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="fc-head" data-fc="head">
+          <div class="fc-id">
+            <div class="fc-avatar" id="fc-avatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ic"><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="18.5" cy="17.5" r="3.5"/><path d="M15 6h-2l-3 8M5.5 17.5L9 11h4M15 6l1.5 5.5L18.5 14"/></svg></div>
+            <div class="fc-idtext">
+              <div class="fc-title" id="fc-id">—</div>
+              <div class="fc-meta" id="fc-meta">—</div>
+            </div>
+          </div>
+          <span class="fc-badge" id="fc-badge">—</span>
+        </div>
+        <div class="fc-body" data-fc="body">
+          <div class="fc-route">
+            <div class="fc-route-line">
+              <span id="fc-from">Resto</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="fc-arrow"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+              <span id="fc-to">Lokasimu</span>
+            </div>
+            <div class="fc-progress-row">
+              <div class="fc-progress"><i id="fc-progress-bar"></i></div>
+              <span class="fc-progress-val" id="fc-progress-val">0%</span>
+            </div>
+          </div>
+          <div class="fc-eta-row">
+            <div class="fc-eta-item"><span class="fc-eta-label">Tiba dalam</span><span class="fc-eta-val" id="fc-eta">—</span></div>
+            <div class="fc-eta-item right"><span class="fc-eta-label">Driver</span><span class="fc-eta-val" id="fc-driver">—</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="order-strip" id="order-strip"></div>
+    </div>
+  </section>
+
+  <!-- ============ PAGE: ORDERS ============ -->
+  <section class="page" id="page-orders">
+    <div class="page-title">Pesanan</div>
+    <div class="panel">
+      <div class="search-row">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="search-ic"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input type="search" id="search" placeholder="Cari merchant atau kode booking…">
+      </div>
+      <div class="table-wrap">
+        <table class="tbl" id="tbl-orders">
+          <thead><tr><th>Merchant</th><th>Kode booking</th><th>Status</th><th>Masuk</th><th>Link</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="orders-empty" class="empty hidden">
+        <p class="empty-title">Belum ada yang terpantau</p>
+        <p class="empty-sub">Tempel share link dari Grab di halaman Tempel link.</p>
+        <button class="btn-dark" onclick="setPage('add')">Tempel link</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PAGE: ANALYTICS ============ -->
+  <section class="page" id="page-analytics">
+    <div class="page-title">Analitik</div>
+    <div class="kpi-grid">
+      <div class="sc-card kpi-anim" style="--d:0">
+        <div class="sc-card-head">
+          <span class="sc-card-title">Aktif</span>
+          <span class="sc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ic"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l2.5 2.5"/></svg></span>
+        </div>
+        <div class="sc-card-val" id="kpi-active">0/0</div>
+      </div>
+      <div class="sc-card kpi-anim" style="--d:1">
+        <div class="sc-card-head">
+          <span class="sc-card-title">Total pesanan</span>
+          <span class="sc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ic"><path d="M21 8l-9-5-9 5v8l9 5 9-5V8zM3 8l9 5 9-5M12 13v8"/></svg></span>
+        </div>
+        <div class="sc-card-val" id="kpi-total">0</div>
+      </div>
+      <div class="sc-card kpi-anim" style="--d:2">
+        <div class="sc-card-head">
+          <span class="sc-card-title">Tiba</span>
+          <span class="sc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ic"><path d="M20 6L9 17l-5-5"/></svg></span>
+        </div>
+        <div class="sc-card-val" id="kpi-done">0</div>
+      </div>
+      <div class="sc-card kpi-anim kpi-rev" style="--d:3">
+        <div class="sc-card-head">
+          <span class="sc-card-title">Nilai total</span>
+          <span class="sc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ic"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg></span>
+        </div>
+        <div class="sc-card-val" id="kpi-revenue">Rp 0</div>
+        <div class="sc-card-foot">Rp 15.000 per pesanan</div>
+      </div>
+    </div>
+
+    <div class="ana-grid">
+      <div class="sc-card ana-wide kpi-anim" style="--d:4">
+        <div class="sc-card-head"><span class="sc-card-title">Pesanan per hari</span></div>
+        <div class="chart-h"><canvas id="chart-daily"></canvas></div>
+      </div>
+      <div class="sc-card kpi-anim" style="--d:5">
+        <div class="sc-card-head"><span class="sc-card-title">Paling sering dipesan</span></div>
+        <ol class="freq-list" id="freq-list"><li class="muted-row">Belum ada data.</li></ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PAGE: ADD ============ -->
+  <section class="page" id="page-add">
+    <div class="add-center">
+      <h2 class="add-title">Tempel share link</h2>
+      <p class="add-hint">Salin teks share dari aplikasi Grab</p>
+      <textarea id="add-input" rows="3" placeholder="Tempel di sini…"></textarea>
+      <button class="btn-dark" id="btn-add">Pantau pesanan</button>
+      <p class="add-result" id="add-result"></p>
+    </div>
+  </section>
+
+</div>
+
+<!-- Mobile bottom bar -->
+<nav class="mobilebar">
+  <button data-page="map" class="active">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 20l-6-2V4l6 2 6-2 6 2v14l-6-2-6 2zM9 6v14M15 4v14"/></svg>Peta
+  </button>
+  <button data-page="orders">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Pesanan
+  </button>
+  <button data-page="analytics">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18M7 15v3M12 10v8M17 6v12"/></svg>Analitik
+  </button>
+  <button data-page="add">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Tempel
+  </button>
+</nav>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

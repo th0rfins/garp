@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+garp.db
+*.apk
+.gradle/
+build/
+local.properties
+.idea/
