@@ -3,13 +3,18 @@ package com.garp.tracker.ui
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -179,39 +184,28 @@ private fun BoxWithConstraintsOverlay(
     color: androidx.compose.ui.graphics.Color,
     onClick: () -> Unit,
 ) {
+    var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
     Box(
         Modifier
             .fillMaxSize()
+            .onGloballyPositioned { size = it.size }
     ) {
-        with(androidx.compose.ui.platform.LocalDensity.current) { }
-        androidx.compose.ui.layout.Layout(
-            content = {
-                MarkerDot(color, onClick)
-            },
-            measurePolicy = { measurables, constraints ->
-                val dot = measurables.first()
-                val dotSize = dot.measure(constraints)
-                val x = (constraints.maxWidth * fx).toInt() - dotSize.width / 2
-                val y = (constraints.maxHeight * fy).toInt() - dotSize.height / 2
-                layout(constraints.maxWidth, constraints.maxHeight) {
-                    dot.place(x.toInt(), y.toInt())
-                }
-            }
-        )
+        val w = size.width.toFloat()
+        val h = size.height.toFloat()
+        Box(
+            Modifier
+                .offset { IntOffset(((w * fx).toInt()) - 9, ((h * fy).toInt()) - 9) }
+        ) {
+            MarkerDot(color, onClick)
+        }
         if (destF != null) {
-            androidx.compose.ui.layout.Layout(
-                content = { MarkerDot(AccentGreen, onClick = {}) },
-                measurePolicy = { measurables, constraints ->
-                    val dot = measurables.first()
-                    val dotSize = dot.measure(constraints)
-                    val df = destF
-                    val px = (constraints.maxWidth * df.first).toInt() - dotSize.width / 2
-                    val py = (constraints.maxHeight * df.second).toInt() - dotSize.height / 2
-                    layout(constraints.maxWidth, constraints.maxHeight) {
-                        dot.place(androidx.compose.ui.unit.IntOffset(px, py))
-                    }
-                }
-            )
+            val df = destF
+            Box(
+                Modifier
+                    .offset { IntOffset(((w * df.first).toInt()) - 9, ((h * df.second).toInt()) - 9) }
+            ) {
+                MarkerDot(AccentGreen, onClick = {})
+            }
         }
     }
 }
