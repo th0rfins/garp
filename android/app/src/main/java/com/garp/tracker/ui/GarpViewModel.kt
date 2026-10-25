@@ -39,11 +39,8 @@ class GarpViewModel(serverUrl: String) : ViewModel() {
         viewModelScope.launch {
             if (!silent) state = state.copy(loading = true, error = null)
             try {
-                val (stats, orders) = kotlinx.coroutines.coroutineScope {
-                    val s = kotlinx.coroutines.async { api.stats() }
-                    val o = kotlinx.coroutines.async { api.orders() }
-                    s.await() to o.await()
-                }
+                val stats = api.stats()
+                val orders = api.orders()
                 state = state.copy(stats = stats, orders = orders, loading = false, error = null)
             } catch (e: Exception) {
                 state = state.copy(loading = false, error = e.message ?: "Gagal memuat data")

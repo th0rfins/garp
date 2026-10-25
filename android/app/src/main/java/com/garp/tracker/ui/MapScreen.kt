@@ -1,6 +1,8 @@
 package com.garp.tracker.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -150,8 +152,12 @@ fun MiniMap(orders: List<Order>, onMarkerClick: (String) -> Unit, modifier: Modi
 
         // Marker
         orders.forEach { o ->
-            val (fx, fy) = norm(o.driverLat!!, o.driverLng!!)
-            val (dx, dy) = if (o.destLat != null && o.destLng != null) norm(o.destLat, o.destLng) else null
+            val lat = o.driverLat ?: return@forEach
+            val lng = o.driverLng ?: return@forEach
+            val (fx, fy) = norm(lat, lng)
+            val dest = if (o.destLat != null && o.destLng != null) norm(o.destLat!!, o.destLng!!) else null
+            val dx = dest?.first
+            val dy = dest?.second
             BoxWithConstraintsOverlay(
                 fx = fx, fy = fy,
                 destF = dx?.let { it to (dy ?: 0f) },
@@ -197,11 +203,11 @@ private fun BoxWithConstraintsOverlay(
                 measurePolicy = { measurables, constraints ->
                     val dot = measurables.first()
                     val dotSize = dot.measure(constraints)
+                    val df = destF
+                    val px = (constraints.maxWidth * df.first).toInt() - dotSize.width / 2
+                    val py = (constraints.maxHeight * df.second).toInt() - dotSize.height / 2
                     layout(constraints.maxWidth, constraints.maxHeight) {
-                        dot.place(
-                            (constraints.maxWidth * destF.first).toInt() - dotSize.width / 2,
-                            (constraints.maxHeight * destF.second).toInt() - dotSize.height / 2
-                        )
+                        dot.place(px, py)
                     }
                 }
             )

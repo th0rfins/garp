@@ -41,7 +41,7 @@ class GarpApi(private val baseUrl: String) {
     suspend fun addOrder(link: String): Order =
         client.post("$baseUrl/api/orders") {
             contentType(ContentType.Application.Json)
-            setBody("""{"link": ${Json.encodeToString(link)}}""")
+            setBody("""{"link": "${link.replace("\\", "\\\\").replace("\"", "\\\"")}"}""")
         }.body<Order>()
 
     suspend fun deleteOrder(id: String): Boolean {
