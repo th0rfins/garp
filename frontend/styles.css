@@ -113,6 +113,17 @@ body {
 .mk.alert { border-color: var(--amber); box-shadow: 0 0 14px rgba(242,179,61,.35); }
 .mk.dest { background: #2b1d1d; border-color: var(--red); font-size: 11px; }
 
+/* ---------- Map empty state ---------- */
+.map-empty {
+  position: absolute; left: 50%; top: 44%; transform: translate(-50%,-50%);
+  text-align: center; pointer-events: none; color: var(--text-3); z-index: 800;
+}
+.map-empty.hidden { display: none; }
+.map-empty { text-shadow: 0 1px 6px rgba(0,0,0,.9), 0 0 24px rgba(0,0,0,.7); }
+.me-ic { width: 40px; height: 40px; stroke: #6b6b6b; margin-bottom: 10px; filter: drop-shadow(0 1px 4px rgba(0,0,0,.8)); }
+.me-title { color: var(--text); font-size: 15px; font-weight: 600; }
+.me-sub { font-size: 12.5px; margin-top: 4px; color: #b8b8b8; }
+
 /* ---------- Floating card ---------- */
 .float-card {
   position: absolute; top: 14px; left: 14px; z-index: 800;

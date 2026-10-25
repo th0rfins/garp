@@ -130,7 +130,7 @@ function initBigMap() {
   if (bigMap) return;
   bigMap = L.map('bigmap', { zoomControl: false }).setView([-6.21, 106.845], 14);
   L.control.zoom({ position: 'topright' }).addTo(bigMap);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(bigMap);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(bigMap);
 }
 
 function mkClass(o) {
@@ -144,7 +144,7 @@ function mkIcon(o) {
 
 function renderMarkers() {
   initBigMap();
-  const shown = ORDERS.filter((o) => o.lat != null);
+  const shown = ORDERS.filter((o) => o.lat != null && ['prepare', 'allocated', 'ontheway'].includes(o.status));
   Object.values(markers).forEach((m) => bigMap.removeLayer(m));
   markers = {};
   shown.forEach((o) => {
@@ -153,7 +153,8 @@ function renderMarkers() {
     markers[o.id] = m;
   });
   const sel = ORDERS.find((x) => x.id === SELECTED_ID);
-  if (sel && sel.lat != null) {
+  const selLive = sel && ['prepare', 'allocated', 'ontheway'].includes(sel.status);
+  if (sel && selLive && sel.lat != null) {
     const dest = sel.destLat != null ? [sel.destLat, sel.destLng] : [sel.lat + 0.0015, sel.lng + 0.002];
     if (!routeLine) {
       routeLine = L.polyline([], { color: '#f2b33d', weight: 3, opacity: .85, dashArray: '4 8' }).addTo(bigMap);
@@ -175,7 +176,7 @@ function selectOrder(id) {
   renderStrip();
   renderMarkers();
   const o = ORDERS.find((x) => x.id === id);
-  if (o && o.lat != null && bigMap) {
+  if (o && o.lat != null && bigMap && ['prepare', 'allocated', 'ontheway'].includes(o.status)) {
     const d = o.destLat != null ? [o.destLat, o.destLng] : [o.lat + 0.0015, o.lng + 0.002];
     bigMap.fitBounds(L.latLngBounds([[o.lat, o.lng], d]).pad(.4), { animate: true, maxZoom: 17 });
   }
@@ -183,14 +184,15 @@ function selectOrder(id) {
 
 function renderStrip() {
   const el = $('#order-strip');
-  const live = ORDERS.filter((o) => ['prepare', 'allocated', 'ontheway'].includes(o.status));
-  const list = live.length ? live : ORDERS.slice(0, 6);
+  const list = ORDERS.filter((o) => ['prepare', 'allocated', 'ontheway'].includes(o.status));
   el.innerHTML = list.map((o) => `
     <div class="strip-chip ${o.id === SELECTED_ID ? 'sel' : ''}" data-sel="${o.id}">
       <span class="sc-status ${o.status}"></span><span class="sc-name">${esc(o.merchant)}</span>
     </div>`).join('');
   $$('#order-strip .strip-chip').forEach((c) =>
     c.addEventListener('click', () => selectOrder(c.dataset.sel)));
+  $('#order-strip').style.display = list.length ? '' : 'none';
+  $('#map-empty').classList.toggle('hidden', list.length > 0);
 }
 
 /* ---------- Floating card ---------- */
@@ -380,14 +382,16 @@ async function refresh() {
   if (currentPage === 'map') {
     renderStrip();
     renderMarkers();
+    const active = ORDERS.filter((o) => ['prepare', 'allocated', 'ontheway'].includes(o.status));
     const sel = ORDERS.find((o) => o.id === SELECTED_ID);
-    if (sel) renderFloatCard(sel);
-    else if (ORDERS.length) {
-      const firstActive = ORDERS.find((o) => ['ontheway', 'allocated', 'prepare'].includes(o.status)) || ORDERS[0];
-      SELECTED_ID = firstActive.id;
-      renderFloatCard(firstActive);
+    if (sel && active.some((o) => o.id === sel.id)) renderFloatCard(sel);
+    else if (active.length) {
+      SELECTED_ID = active[0].id;
+      renderFloatCard(active[0]);
       renderStrip();
-    } else renderFloatCard(null);
+    } else {
+      renderFloatCard(null);
+    }
     if (SELECTED_ID) startOrderStream(SELECTED_ID);
   }
 }
