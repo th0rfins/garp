@@ -194,7 +194,7 @@ private fun BoxWithConstraintsOverlay(
                 val x = (constraints.maxWidth * fx).toInt() - dotSize.width / 2
                 val y = (constraints.maxHeight * fy).toInt() - dotSize.height / 2
                 layout(constraints.maxWidth, constraints.maxHeight) {
-                    dot.place(x, y)
+                    dot.place(x.toInt(), y.toInt())
                 }
             }
         )
@@ -208,7 +208,7 @@ private fun BoxWithConstraintsOverlay(
                     val px = (constraints.maxWidth * df.first).toInt() - dotSize.width / 2
                     val py = (constraints.maxHeight * df.second).toInt() - dotSize.height / 2
                     layout(constraints.maxWidth, constraints.maxHeight) {
-                        dot.place(px, py)
+                        dot.place(androidx.compose.ui.unit.IntOffset(px, py))
                     }
                 }
             )
