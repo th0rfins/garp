@@ -28,7 +28,7 @@ import com.garp.tracker.ui.theme.*
  */
 @Composable
 fun MapScreen(vm: GarpViewModel, onOrderClick: (String) -> Unit) {
-    val state by vm.state
+    val state = vm.state
     val activeOrders = state.orders.filter {
         it.driverLat != null && it.driverLng != null
     }

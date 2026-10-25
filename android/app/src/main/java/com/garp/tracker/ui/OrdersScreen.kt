@@ -22,7 +22,7 @@ import com.garp.tracker.ui.theme.*
 
 @Composable
 fun OrdersScreen(vm: GarpViewModel, onOrderClick: (String) -> Unit) {
-    val state by vm.state
+    val state = vm.state
 
     Column(
         Modifier
