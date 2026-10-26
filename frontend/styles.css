@@ -521,3 +521,24 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .tbl tbody tr, .flashing { animation: none !important; }
 }
+
+/* ---------- poll bar (top loading indicator, active orders only) ---------- */
+.pollbar {
+  position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 9999;
+  background: transparent; pointer-events: none; opacity: 0;
+  transition: opacity .3s ease;
+}
+.pollbar.on { opacity: 1; }
+.pollbar i {
+  display: block; height: 100%; width: 30%;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: pollslide 1.4s cubic-bezier(.45,.05,.55,.95) infinite;
+  opacity: .85;
+}
+@keyframes pollslide {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(440%); }
+}
+.pollbar.ok i { background: #3fb68b; animation: none; transform: none; width: 100%; opacity: 0; transition: opacity .6s ease .3s; }
+@media (prefers-reduced-motion: reduce) { .pollbar i { animation: none; } }

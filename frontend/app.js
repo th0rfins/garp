@@ -395,12 +395,14 @@ function fallbackPoll(id) {
   liveTimer = setInterval(() => loadOrderInto(id), 5000);
 }
 async function loadOrderInto(id) {
+  pollBar('on');
   try {
     const o = await API.order(id);
     const i = ORDERS.findIndex((x) => x.id === id);
     if (i >= 0) ORDERS[i] = { ...ORDERS[i], ...o };
+    pollBar('ok');
     renderFloatCard(ORDERS[i]);
-    renderMarkers();
+    try { renderMarkers(); } catch (e) { /* no WebGL */ }
   } catch (e) { /* keep last state */ }
 }
 
@@ -575,10 +577,23 @@ $('#btn-add').addEventListener('click', async () => {
 
 /* ---------- Refresh ---------- */
 let LAST_STATS = null;
+function pollBar(state) {
+  const bar = $('#pollbar');
+  if (!bar) return;
+  bar.classList.toggle('on', state === 'on');
+  if (state === 'ok') {
+    bar.classList.add('ok', 'on');
+    setTimeout(() => bar.classList.remove('on', 'ok'), 700);
+  }
+}
+
 async function refresh() {
+  const hasActive = ORDERS.some((o) => ['prepare', 'allocated', 'ontheway'].includes(o.status));
+  if (hasActive) pollBar('on');
   const { stats, orders } = await getData();
   LAST_STATS = stats;
   ORDERS = orders;
+  if (hasActive) pollBar('ok');
   renderKPIs(stats);
   renderOrdersTable();
   if (currentPage === 'analytics') initCharts();
