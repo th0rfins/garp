@@ -28,7 +28,7 @@ data class Order(
     @SerialName("complete_time") val completeTime: String? = null,
     @SerialName("dropoff_time") val dropoffTime: String? = null,
     @SerialName("driver_arrival_time") val driverArrivalTime: String? = null,
-    @SerialName("multi_stop") val multiStop: Boolean? = null,
+    @SerialName("multi_stop") val multiStop: Int? = null,  // 0/1 dari server
     @SerialName("link") val link: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("error") val error: String? = null,

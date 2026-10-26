@@ -67,7 +67,7 @@ fun OrderDetailScreen(order: Order?, loading: Boolean, onBack: () -> Unit) {
                         Text(it, color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(10.dp))
                     }
                 }
-                if (order.multiStop == true && order.etaSeconds != null && !done) {
+                if (order.multiStop == 1 && order.etaSeconds != null && !done) {
                     Surface(color = AccentYellow.copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
                         Text("Double order — ETA dihitung ke stop berikutnya rute driver",
                             color = AccentYellow, fontSize = 11.sp, modifier = Modifier.padding(8.dp))
