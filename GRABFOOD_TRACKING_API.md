@@ -993,3 +993,62 @@ def decode_grab_polyline(lat_s: str, lng_s: str):
 Array integer, panjang = jumlah segmen (order nyata: 80 nilai untuk 81
 titik). Nilai teramati hanya `0` dan `1` per segmen (indikasi lancar/padat).
 Setelah pesanan selesai nilainya `null`.
+
+---
+
+## 9. Multi-Order (Double Order) — `driver.plannedSteps`
+
+Satu driver bisa membawa 2+ pesanan sekaligus. Capture nyata (26 Okt 2026,
+driver bawa 2 order, 4 stop):
+
+```json
+{
+  "plannedSteps": [
+    {"bookingCodes": ["A-ORDER2CODE0000AV"], "state": "COMPLETED", "isPickup": true,  "location": {"latitude": -7.728, "longitude": 109.014}},
+    {"bookingCodes": ["A-SHAREDCODE0000AV"], "state": "COMPLETED", "isPickup": true,  "location": {"latitude": -7.728, "longitude": 109.014}},
+    {"bookingCodes": ["A-ORDER2CODE0000AV"], "state": "ACTIVE",    "isDropOff": true, "location": {"latitude": -7.719, "longitude": 109.016}},
+    {"bookingCodes": ["A-SHAREDCODE0000AV"], "state": "DRIVER_ACCEPTED", "isDropOff": true, "location": {"latitude": -7.719, "longitude": 109.019}}
+  ]
+}
+```
+
+### Arti `state` per step (terverifikasi transisi realtime)
+
+| state | Arti |
+|---|---|
+| `DRIVER_ACCEPTED` | Stop sudah direncanakan, belum dieksekusi |
+| `ACTIVE` | Stop sedang dieksekusi (driver menuju / di lokasi) |
+| `COMPLETED` | Stop selesai |
+
+### Perilaku yang terekam (polling 15 detik)
+
+1. **Transisi antar-drop terlihat realtime**: DROPOFF order#2 `ACTIVE` →
+   `COMPLETED`, dan di poll berikutnya DROPOFF order-share langsung
+   `DRIVER_ACCEPTED` → `ACTIVE`.
+2. **`bookingState` adalah per-booking, bukan per-trip**: pesanan yang di-share
+   tetap `ORDER_EXECUTING` sepanjang driver mengantar pesanan ORANG LAIN
+   terlebih dahulu.
+3. **`route.ETAs` menghitung ke stop AKTIF berikutnya dalam rute driver** —
+   bukan ke dropoff pesanan yang di-share. Saat driver mengantar order lain,
+   ETAs=[191] itu ETA ke dropoff order lain. Jangan tampilkan sebagai "makanan
+   anda tiba dalam X detik" saat ada stop lain yang lebih dulu.
+4. **Booking code pesanan lain ikut terekspos** di `plannedSteps.bookingCodes`
+   pada response pesanan yang di-share (catatan privasi tambahan).
+5. `plannedSteps` menghilang / dibersihkan saat pesanan COMPLETED (sama seperti
+   `route.*`).
+
+---
+
+## 10. Ringkasan Field Tidak Obvious (Quick Reference)
+
+| Field | Perilaku nyata |
+|---|---|
+| `sessionStatus` | Tetap `"ACTIVE"` setelah pesanan selesai — jangan dipakai sebagai sinyal selesai |
+| `additionalOrderDetail.completeFlag` | Bisa tetap `0` sampai akhir (nyata!), bisa juga `1` duluan — tidak konsisten antar pesanan |
+| `route.ETAs` | 2 elemen sebelum pickup `[driver→merchant, merchant→cust]`, 1 elemen sesudah; menghitung ke stop aktif berikutnya (bisa dropoff order lain!); bisa naik sesaat saat re-route |
+| `route.encodedSteps` | Polyline precision **1e6** (bukan 1e5); titik[0]=posisi driver, titik[-1]=dropoff; hasil routing engine (bukan garis lurus) |
+| `route.traffic` | Array 0/1 per segmen, panjang = titik-1; `null` setelah selesai |
+| `driver.location` | Reset ke `{0,0}` saat COMPLETED — filter sebelum dipakai |
+| `booking.completeTime` | Bisa kosong walau pesanan sudah selesai (dropOffTime yang terisi lebih konsisten) |
+| `uc` | Counter naik seiring waktu/polling (8 → 35 → 153 → 327 → 270 teramati) |
+| `driver.profilePic` | S3 presigned URL, valid 6 jam (`X-Amz-Expires=21600`) |
