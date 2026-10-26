@@ -65,6 +65,7 @@ fun MapScreen(vm: GarpViewModel, onOrderClick: (String) -> Unit) {
                 OsmMap(
                     orders = activeOrders,
                     onMarkerTap = onOrderClick,
+                    lastOrder = state.orders.firstOrNull(),
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -144,7 +145,9 @@ fun MapScreen(vm: GarpViewModel, onOrderClick: (String) -> Unit) {
 }
 
 @Composable
-private fun OsmMap(orders: List<Order>, onMarkerTap: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun OsmMap(orders: List<Order>, onMarkerTap: (String) -> Unit, lastOrder: Order?, modifier: Modifier = Modifier) {
+    // Ref agar kamera tidak di-reset tiap polling 5 detik
+    val lastFocusSig = remember { mutableStateOf("__init__") }
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
@@ -159,11 +162,13 @@ private fun OsmMap(orders: List<Order>, onMarkerTap: (String) -> Unit, modifier:
         update = { map ->
             map.overlays.removeAll { it is Marker || it is Polyline }
             val points = mutableListOf<org.osmdroid.util.GeoPoint>()
+            var focusPoint: org.osmdroid.util.GeoPoint? = null
             orders.forEach { o ->
                 val lat = o.driverLat ?: return@forEach
                 val lng = o.driverLng ?: return@forEach
                 val driver = org.osmdroid.util.GeoPoint(lat, lng)
                 points.add(driver)
+                if (focusPoint == null) focusPoint = driver
                 val (dColor, _) = statusStyle(o.status)
                 Marker(map).apply {
                     position = driver
@@ -189,10 +194,31 @@ private fun OsmMap(orders: List<Order>, onMarkerTap: (String) -> Unit, modifier:
                     }.also { map.overlays.add(it) }
                 }
             }
-            if (points.isNotEmpty()) {
-                val bb = BoundingBox.fromGeoPoints(points)
-                map.post {
-                    map.zoomToBoundingBox(bb.increaseByScale(1.4f), false, 64)
+            // Kamera: fokus otomatis, tapi JANGAN reset tiap poll (user mungkin sedang pan/zoom sendiri).
+            // Kunci pada "signature" set order aktif + sudah-fokus flag.
+            val sig = orders.joinToString(",") { it.id }
+            if (orders.isNotEmpty() && points.isNotEmpty()) {
+                if (lastFocusSig != "$sig") {
+                    val bb = BoundingBox.fromGeoPoints(points)
+                    map.post {
+                        map.zoomToBoundingBox(bb.increaseByScale(1.4f), false, 64)
+                    }
+                    lastFocusSig = sig
+                }
+            } else {
+                // Tidak ada order aktif → fokus ke last location pesanan terakhir
+                if (lastFocusSig != "idle") {
+                    lastOrder?.let { o ->
+                        val lat = o.driverLat?.takeIf { it != 0.0 } ?: o.destLat
+                        val lng = o.driverLng?.takeIf { it != 0.0 } ?: o.destLng
+                        if (lat != null && lng != null) {
+                            map.post {
+                                map.controller.animateTo(org.osmdroid.util.GeoPoint(lat, lng))
+                                if (map.zoomLevelDouble < 14.5) map.controller.setZoom(14.5)
+                            }
+                        }
+                    }
+                    lastFocusSig = "idle"
                 }
             }
             map.invalidate()
