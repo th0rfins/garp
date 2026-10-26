@@ -5,7 +5,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Map
@@ -45,9 +48,17 @@ fun GarpApp(
         containerColor = Bg,
         topBar = {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.End
+                Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.statusBars) // tidak kepotong notch/cutout
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                // Refresh koneksi: clear error + re-fetch langsung
+                IconButton(onClick = { vm.refresh() }) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh koneksi", tint = TextMuted)
+                }
                 IconButton(onClick = { showServerDialog = true }) {
                     Icon(Icons.Filled.Settings, contentDescription = "Server URL", tint = TextMuted)
                 }

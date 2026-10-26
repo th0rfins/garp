@@ -368,6 +368,7 @@ def _snapshot(o: dict) -> dict:
             "driver_arrival_time", "multi_stop",
             "link", "error", "created_at", "updated_at")
     snap = {k: o.get(k) for k in keys}
+    snap["multi_stop"] = int(snap.get("multi_stop") or 0)
     if o.get("route_points"):
         snap["route"] = o["route_points"]
         snap["traffic"] = o.get("traffic")

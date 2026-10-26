@@ -92,7 +92,7 @@ fun MapScreen(vm: GarpViewModel, onOrderClick: (String) -> Unit) {
                             focused.etaSeconds?.let {
                                 Text(formatEta(it), color = AccentYellow, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
-                            if (focused.multiStop && focused.etaSeconds != null) {
+                            if (focused.multiStop == true && focused.etaSeconds != null) {
                                 Text("double order", color = AccentYellow.copy(alpha = 0.7f), fontSize = 9.sp)
                             }
                         }
