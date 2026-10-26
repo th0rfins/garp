@@ -46,12 +46,12 @@ fun OrderDetailScreen(order: Order?, loading: Boolean, onBack: () -> Unit) {
         Surface(color = CardBg, shape = RoundedCornerShape(14.dp),
             border = androidx.compose.foundation.BorderStroke(1.dp, Border), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val done = order.status == "completed"
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(8.dp).clip(CircleShape).background(color))
                     Spacer(Modifier.width(8.dp))
                     Text(label, color = color, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                     Spacer(Modifier.weight(1f))
-                    val done = order.status == "completed"
                     val etaText = when {
                         done -> "Tiba ✓"
                         order.etaSeconds != null -> "ETA ${formatEta(order.etaSeconds)}"
