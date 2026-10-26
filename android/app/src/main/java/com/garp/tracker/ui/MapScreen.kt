@@ -153,7 +153,7 @@ private fun OsmMap(orders: List<Order>, onMarkerTap: (String) -> Unit, modifier:
                 setMultiTouchControls(true)
                 controller.setZoom(15.5)
                 // Scrim gelap tipis di atas tile agar nyaman di tema gelap
-                overlayManager.tilesOverlay.setColorFilter(AwtColor.argb(120, 10, 10, 11))
+                overlayManager.tilesOverlay.setColorFilter(android.graphics.PorterDuffColorFilter(AwtColor.argb(150, 12, 12, 14), android.graphics.PorterDuff.Mode.SRC_ATOP))
             }
         },
         update = { map ->
