@@ -1,6 +1,8 @@
 package com.garp.tracker.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,6 +17,7 @@ import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,7 +39,12 @@ fun GarpApp(
     var tab by remember { mutableStateOf(0) }
     var selectedOrderId by remember { mutableStateOf<String?>(null) }
     var showAddSheet by remember { mutableStateOf(false) }
-    var showServerDialog by remember { mutableStateOf(true) } // dialog first-launch; ditutup user
+    // Dialog hanya muncul di first launch (belum ada URL tersimpan), bukan tiap buka app
+    var showServerDialog by remember { mutableStateOf(false) }
+    var askedOnce by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (!askedOnce && serverUrl.isBlank()) { showServerDialog = true; askedOnce = true }
+    }
 
     LaunchedEffect(initialLink) {
         if (initialLink != null) {
@@ -101,14 +109,39 @@ fun GarpApp(
         }
     ) { padding ->
         Box(Modifier.padding(padding)) {
-            when {
-                selectedOrderId != null -> {
-                    val order = selectedOrderId?.let { id -> vm.state.orders.find { it.id == id } }
-                    OrderDetailScreen(order = order, loading = false, onBack = { selectedOrderId = null })
+            // Banner koneksi gagal + retry
+            androidx.compose.animation.AnimatedVisibility(
+                visible = vm.state.error != null,
+                enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+                exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically(),
+                modifier = Modifier.align(Alignment.TopCenter),
+            ) {
+                Surface(
+                    color = AccentRed.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.padding(12.dp).fillMaxWidth()
+                ) {
+                    Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(vm.state.error ?: "", color = AccentRed, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { vm.refresh() }) {
+                            Text("Coba lagi", color = AccentRed, fontSize = 12.sp)
+                        }
+                    }
                 }
-                tab == 0 -> MapScreen(vm, onOrderClick = { selectedOrderId = it })
-                tab == 1 -> OrdersScreen(vm, onOrderClick = { selectedOrderId = it })
-                tab == 2 -> AnalyticsScreen(vm)
+            }
+
+            // Crossfade antar layar: transisi smooth, bukan swap kasar
+            val screenKey = selectedOrderId ?: "tab$tab"
+            Crossfade(targetState = screenKey, animationSpec = tween(220), label = "screen") { key ->
+                when {
+                    key == selectedOrderId && selectedOrderId != null -> {
+                        val order = selectedOrderId?.let { id -> vm.state.orders.find { it.id == id } }
+                        OrderDetailScreen(order = order, loading = false, onBack = { selectedOrderId = null })
+                    }
+                    key == "tab0" -> MapScreen(vm, onOrderClick = { selectedOrderId = it })
+                    key == "tab1" -> OrdersScreen(vm, onOrderClick = { selectedOrderId = it })
+                    else -> AnalyticsScreen(vm)
+                }
             }
         }
     }

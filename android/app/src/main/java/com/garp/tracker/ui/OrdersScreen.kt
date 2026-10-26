@@ -9,6 +9,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -95,7 +97,9 @@ fun OrdersScreen(vm: GarpViewModel, onOrderClick: (String) -> Unit) {
 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             items(pageItems, key = { it.id }) { order ->
-                OrderRow(order = order, onClick = { onOrderClick(order.id) }, onDelete = { vm.deleteOrder(order.id) })
+                Row(Modifier.animateItem()) {
+                    OrderRow(order = order, onClick = { onOrderClick(order.id) }, onDelete = { vm.deleteOrder(order.id) }, modifier = Modifier)
+                }
             }
         }
 
@@ -107,7 +111,7 @@ fun OrdersScreen(vm: GarpViewModel, onOrderClick: (String) -> Unit) {
                     color = TextFaint, fontSize = 11.sp, fontFamily = MaterialTheme.typography.labelSmall.fontFamily)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { if (page > 1) page-- }, enabled = page > 1,
-                        colors = ButtonDefaults.textButtonColors(contentColor = TextMuted, disabledContentColor = TextFaint)) { Text("‹") }
+                        colors = ButtonDefaults.textButtonColors(contentColor = TextMuted, disabledContentColor = TextFaint)) { Icon(Icons.Filled.ChevronLeft, "Sebelumnya", modifier = Modifier.size(18.dp)) }
                     (1..pages).take(5).forEach { p ->
                         Text(p.toString(),
                             color = if (p == page) Color.White else TextMuted,
@@ -119,7 +123,7 @@ fun OrdersScreen(vm: GarpViewModel, onOrderClick: (String) -> Unit) {
                                 .padding(horizontal = 9.dp, vertical = 4.dp))
                     }
                     TextButton(onClick = { if (page < pages) page++ }, enabled = page < pages,
-                        colors = ButtonDefaults.textButtonColors(contentColor = TextMuted, disabledContentColor = TextFaint)) { Text("›") }
+                        colors = ButtonDefaults.textButtonColors(contentColor = TextMuted, disabledContentColor = TextFaint)) { Icon(Icons.Filled.ChevronRight, "Berikutnya", modifier = Modifier.size(18.dp)) }
                 }
             }
         }
@@ -130,14 +134,14 @@ fun OrdersScreen(vm: GarpViewModel, onOrderClick: (String) -> Unit) {
 /** Baris 1-line: [avatar] nama+kode | badge | jam | hapus — selaras web. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OrderRow(order: Order, onClick: () -> Unit, onDelete: () -> Unit) {
+fun OrderRow(order: Order, onClick: () -> Unit, onDelete: () -> Unit, modifier: Modifier = Modifier) {
     val (color, label) = statusStyle(order.status)
     var confirmDelete by remember { mutableStateOf(false) }
     Surface(
         color = Color.Transparent,
         shape = RoundedCornerShape(10.dp),
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth()
     ) {
         Row(Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             OrderAvatar(order, size = 38)

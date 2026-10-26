@@ -1,15 +1,12 @@
 package com.garp.tracker.ui
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.border
+import android.graphics.Color
+import android.preference.PreferenceManager
 import androidx.compose.foundation.background
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -17,40 +14,46 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.garp.tracker.data.Order
 import com.garp.tracker.ui.theme.*
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.math.sqrt
+import org.osmdroid.config.Configuration
+import org.osmdroid.events.MapListener
+import org.osmdroid.events.ScrollEvent
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.BoundingBox
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polyline
 
 /**
- * Tab Peta: peta kanvas gelap (gaya Vercel/Linear), SEMUA orderan aktif tampil
- * bersamaan (multi-track, selaras frontend fitAllActive), garis rute driver→tujuan,
- * float card order pertama dengan foto driver.
+ * Tab Peta: peta OSM nyata (osmdroid, libre & keyless) dengan SEMUA orderan aktif
+ * tampil bersamaan (multi-track). Auto-fit bounds; float card order pertama.
  */
 @Composable
 fun MapScreen(vm: GarpViewModel, onOrderClick: (String) -> Unit) {
     val state = vm.state
+    // Hanya order benar-benar aktif dengan lokasi valid — (0,0) = reset post-completion
     val activeOrders = state.orders.filter {
-        it.status in listOf("prepare", "allocated", "ontheway") ||
-            (it.driverLat != null && it.driverLng != null && it.status !in listOf("completed", "cancelled"))
+        it.status in listOf("prepare", "allocated", "ontheway") &&
+            it.driverLat != null && it.driverLng != null &&
+            !(it.driverLat == 0.0 && it.driverLng == 0.0)
+    }
+
+    val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        Configuration.getInstance()
+            .load(context, PreferenceManager.getDefaultSharedPreferences(context))
+        Configuration.getInstance().userAgentValue = "GARP-Tracker/2.0"
     }
 
     Column(Modifier.fillMaxSize().background(Bg)) {
         Box(Modifier.fillMaxWidth().weight(1f)) {
-            MiniMap(orders = activeOrders, onMarkerClick = onOrderClick, modifier = Modifier.fillMaxSize())
-
             if (activeOrders.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -58,41 +61,53 @@ fun MapScreen(vm: GarpViewModel, onOrderClick: (String) -> Unit) {
                         Text("Tempel link Grab untuk mulai memantau", color = TextFaint, fontSize = 12.sp)
                     }
                 }
+            } else {
+                OsmMap(
+                    orders = activeOrders,
+                    onMarkerTap = onOrderClick,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
 
-            // Float card order aktif pertama — foto driver (bukan icon sepeda)
+            // Float card order aktif pertama — foto driver, animated in/out
             val focused = activeOrders.firstOrNull()
-            if (focused != null) {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = focused != null,
+                enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)) +
+                    androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(220)) { it / 3 },
+                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)),
+                modifier = Modifier.align(Alignment.BottomCenter),
+            ) {
+                val fc = focused ?: return@AnimatedVisibility
                 Surface(
                     color = CardBg.copy(alpha = 0.97f),
                     shape = RoundedCornerShape(14.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, Border),
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
                         .padding(14.dp)
                         .fillMaxWidth()
-                        .clickable { onOrderClick(focused.id) }
+                        .clickable { onOrderClick(fc.id) }
                 ) {
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        OrderAvatar(focused, size = 38)
+                        OrderAvatar(fc, size = 38)
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                            Text(focused.merchant ?: "—", color = TextPrimary, fontWeight = FontWeight.SemiBold,
+                            Text(fc.merchant ?: "—", color = TextPrimary, fontWeight = FontWeight.SemiBold,
                                 fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
                                 listOfNotNull(
-                                    focused.driverName,
-                                    focused.driverRating?.let { "★ $it" },
-                                    focused.driverPlate
+                                    fc.driverName,
+                                    fc.driverRating?.let { "★ $it" },
+                                    fc.driverPlate
                                 ).joinToString(" · ").ifEmpty { "menunggu driver" },
                                 color = TextMuted, fontSize = 11.sp, maxLines = 1
                             )
                         }
                         Column(horizontalAlignment = Alignment.End) {
-                            focused.etaSeconds?.let {
+                            fc.etaSeconds?.let {
                                 Text(formatEta(it), color = AccentYellow, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
-                            if (focused.multiStop == 1 && focused.etaSeconds != null) {
+                            if (fc.multiStop == 1 && fc.etaSeconds != null) {
                                 Text("double order", color = AccentYellow.copy(alpha = 0.7f), fontSize = 9.sp)
                             }
                         }
@@ -101,11 +116,12 @@ fun MapScreen(vm: GarpViewModel, onOrderClick: (String) -> Unit) {
             }
         }
 
-        // Strip pesanan aktif (multi-track chips)
+        // Strip order aktif (multi-track chips)
         if (activeOrders.isNotEmpty()) {
             Row(
-                Modifier.fillMaxWidth().background(Surface).padding(horizontal = 12.dp, vertical = 8.dp)
-                    .horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+                Modifier.fillMaxWidth().background(Surface)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 activeOrders.forEach { o ->
@@ -127,95 +143,62 @@ fun MapScreen(vm: GarpViewModel, onOrderClick: (String) -> Unit) {
     }
 }
 
-/** Peta kanvas gelap: grid halus, garis rute dashed driver→tujuan, marker semua order aktif. */
 @Composable
-fun MiniMap(orders: List<Order>, onMarkerClick: (String) -> Unit, modifier: Modifier = Modifier) {
-    val lats = orders.mapNotNull { it.driverLat } + orders.mapNotNull { it.destLat }
-    val lngs = orders.mapNotNull { it.driverLng } + orders.mapNotNull { it.destLng }
-    val pad = 0.008
-    val minLat = (lats.minOrNull() ?: -6.25) - pad
-    val maxLat = (lats.maxOrNull() ?: -6.18) + pad
-    val minLng = (lngs.minOrNull() ?: 106.81) - pad
-    val maxLng = (lngs.maxOrNull() ?: 106.87) + pad
-    val spanLat = (maxLat - minLat).coerceAtLeast(1e-5)
-    val spanLng = (maxLng - minLng).coerceAtLeast(1e-5)
+private fun OsmMap(orders: List<Order>, onMarkerTap: (String) -> Unit, modifier: Modifier = Modifier) {
+    AndroidView(
+        modifier = modifier,
+        factory = { ctx ->
+            MapView(ctx).apply {
+                setTileSource(TileSourceFactory.MAPNIK)
+                setMultiTouchControls(true)
+                controller.setZoom(15.5)
+                // Scrim gelap tipis di atas tile agar nyaman di tema gelap
+                overlayManager.tilesOverlay.setColorFilter(AwtColor.argb(120, 10, 10, 11))
+            }
+        },
+        update = { map ->
+            map.overlays.removeAll { it is Marker || it is Polyline }
+            val points = mutableListOf<org.osmdroid.util.GeoPoint>()
+            orders.forEach { o ->
+                val lat = o.driverLat ?: return@forEach
+                val lng = o.driverLng ?: return@forEach
+                val driver = org.osmdroid.util.GeoPoint(lat, lng)
+                points.add(driver)
+                val (dColor, _) = statusStyle(o.status)
+                Marker(map).apply {
+                    position = driver
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    title = o.merchant ?: "Driver"
+                    // dot berwarna: pakai icon default tapi tint icon via default marker? gunakan icon bawaan
+                    setOnMarkerClickListener { _, _ -> onMarkerTap(o.id); true }
+                }.also { map.overlays.add(it) }
 
-    fun norm(lat: Double, lng: Double): Pair<Float, Float> {
-        val x = ((lng - minLng) / spanLng).toFloat().coerceIn(0.06f, 0.94f)
-        val y = (1f - ((lat - minLat) / spanLat)).toFloat().coerceIn(0.06f, 0.94f)
-        return x to y
-    }
-
-    Surface(color = Surface, modifier = modifier) {
-        with(androidx.compose.ui.platform.LocalDensity.current) {
-            Canvas(Modifier.fillMaxSize()) {
-                // grid halus ala Linear
-                val stepX = size.width / 8
-                val stepY = size.height / 10
-                for (i in 1..7) drawLine(BorderSoft, Offset(i * stepX, 0f), Offset(i * stepX, size.height), 1f)
-                for (j in 1..9) drawLine(BorderSoft, Offset(0f, j * stepY), Offset(size.width, j * stepY), 1f)
-
-                // rute dashed driver→tujuan per order
-                orders.forEach { o ->
-                    if (o.driverLat != null && o.driverLng != null && o.destLat != null && o.destLng != null) {
-                        val (x1, y1) = norm(o.driverLat!!, o.driverLng!!)
-                        val (x2, y2) = norm(o.destLat!!, o.destLng!!)
-                        val color = statusStyle(o.status).first
-                        val p1 = Offset(x1 * size.width, y1 * size.height)
-                        val p2 = Offset(x2 * size.width, y2 * size.height)
-                        val path = Path().apply { moveTo(p1.x, p1.y); quadraticBezierTo(
-                            (p1.x + p2.x) / 2 + 24f, (p1.y + p2.y) / 2 - 24f, p2.x, p2.y) }
-                        drawPath(path, color.copy(alpha = 0.55f), style = Stroke(
-                            width = 2.5f, cap = StrokeCap.Round,
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))))
-                    }
+                if (o.destLat != null && o.destLng != null && !(o.destLat == 0.0 && o.destLng == 0.0)) {
+                    val dest = org.osmdroid.util.GeoPoint(o.destLat!!, o.destLng!!)
+                    points.add(dest)
+                    Polyline(map).apply {
+                        setPoints(listOf(driver, dest))
+                        outlinePaint.color = dColor.copy(alpha = 0.65f).toArgb()
+                        outlinePaint.strokeWidth = 6f
+                        outlinePaint.strokeDashPathEffect = floatArrayOf(12f, 9f)
+                    }.also { map.overlays.add(it) }
+                    Marker(map).apply {
+                        position = dest
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                        title = "Tujuan"
+                    }.also { map.overlays.add(it) }
                 }
             }
-        }
-
-        // Marker overlay
-        orders.forEach { o ->
-            val lat = o.driverLat ?: return@forEach
-            val lng = o.driverLng ?: return@forEach
-            val (fx, fy) = norm(lat, lng)
-            val dest = if (o.destLat != null && o.destLng != null) norm(o.destLat!!, o.destLng!!) else null
-            MarkerOverlay(fx, fy, dest, statusStyle(o.status).first) {
-                onMarkerClick(o.id)
+            if (points.isNotEmpty()) {
+                val bb = BoundingBox.fromGeoPoints(points)
+                map.post {
+                    map.zoomToBoundingBox(bb.increaseByScale(1.4f), false, 64)
+                }
             }
+            map.invalidate()
         }
-    }
-}
-
-@Composable
-private fun MarkerOverlay(
-    fx: Float, fy: Float,
-    destF: Pair<Float, Float>?,
-    color: Color,
-    onClick: () -> Unit,
-) {
-    var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
-    Box(Modifier.fillMaxSize().onGloballyPositioned { size = it.size }) {
-        val w = size.width.toFloat().coerceAtLeast(1f)
-        val h = size.height.toFloat().coerceAtLeast(1f)
-        Box(Modifier.offset { IntOffset(((w * fx).toInt()) - 9, ((h * fy).toInt()) - 9) }) {
-            MarkerDot(color, onClick)
-        }
-        if (destF != null) {
-            Box(Modifier.offset { IntOffset(((w * destF.first).toInt()) - 7, ((h * destF.second).toInt()) - 7) }) {
-                MarkerDot(AccentGreen, onClick = {})
-            }
-        }
-    }
-}
-
-@Composable
-private fun MarkerDot(color: Color, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .size(18.dp)
-            .clip(CircleShape)
-            .background(color)
-            .border(2.dp, Bg, CircleShape)
-            .clickable(onClick = onClick)
     )
 }
+
+private fun androidx.compose.ui.graphics.Color.toArgb(): Int = android.graphics.Color.argb(
+    (alpha * 255).toInt(), (red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt())

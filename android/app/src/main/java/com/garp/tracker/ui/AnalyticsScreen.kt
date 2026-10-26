@@ -80,7 +80,7 @@ fun AnalyticsScreen(vm: GarpViewModel) {
                 else {
                     val first = daily.keys.first().takeLast(5)
                     val last = daily.keys.last().takeLast(5)
-                    Text("$first → $last", color = TextFaint, fontSize = 10.sp,
+                    Text("$first  s.d.  $last", color = TextFaint, fontSize = 10.sp,
                         fontFamily = MaterialTheme.typography.labelSmall.fontFamily)
                 }
             }
