@@ -38,6 +38,33 @@ Apabila menerima short link `app.grab.com/s/{short_code}`, sistem melakukan reso
 3. **HTTP Requests (Tanpa Redirect & Dengan Redirect)**:
    - **Metode 1**: `GET` request dengan `follow_redirects=False`. Membaca header HTTP `Location` untuk mengekstrak token `/o/{token}`.
    - **Metode 2**: `GET` request dengan `follow_redirects=True`. Mengambil URL akhir (misalnya `https://sharelocation.grab.com/open?shareOrderLink={token}`) atau memindai body HTML respons (max 6000 karakter).
+
+#### Bukti Header Redirect Nyata (capture 25 Okt 2026)
+
+```http
+HTTP/2 302
+server: CloudFront
+location: https://app.grab.com/open?screenType=GRABFOOD
+  &shareOrderLink={token}
+  &og_title=Share+your+current+order+status+with+your+friends.
+  &og_description=Track+my+order+from+{NAMA_MERCHANT}.+   <- nama merchant bocor di sini
+  &deeplink_safe_id={hash256}
+  &redirection=https%3A%2F%2Fsharelocation.grab.com%2Fo%2F{token}
+  &short_link_code={short_code}
+set-cookie: _gssid={session}; Expires=+30 menit
+set-cookie: _gsvid={visitor}; Expires=+10 tahun
+x-cache: LambdaGeneratedResponse from cloudfront
+```
+
+#### ⚠️ Bukti: Short Code ≠ Token API
+
+Menggunakan short code (`app.grab.com/s/{code}`) langsung sebagai `{token}`
+pada endpoint `bookingdetails` menghasilkan **HTTP 404** (terverifikasi).
+Resolusi 302 → `shareOrderLink` wajib dilakukan lebih dulu. Contoh nyata:
+short code `R7I5xw7b` (8 karakter) → token `Yp9ysb...1dLS` (22 karakter).
+
+Kebocoran tambahan: **nama merchant sudah terlihat di header `Location` 302**
+sebelum halaman web mana pun dibuka — cukup satu `curl -I` tanpa auth.
    - **Metode 3**: `HEAD` request dengan `follow_redirects=False`. Beberapa edge node Grab hanya mengembalikan status `302 Redirect` pada request `HEAD`.
 
 ---
@@ -163,6 +190,35 @@ Tracking akan dihentikan secara otomatis jika salah satu kondisi berikut terpenu
    - `TERMINAT` / `TERMINATED`
 3. `additionalOrderDetail.completeFlag` bernilai `1`.
 
+### ⚠️ Catatan Lapangan — Reliabilitas Kondisi Terminal
+
+Berdasarkan capture 3 pesanan nyata (polling 15 detik, lifecycle penuh):
+
+- `completeFlag` **tidak selalu menjadi `1`**: pada satu pesanan nilainya
+  tetap `0` bahkan setelah `bookingState == "COMPLETED"`. Pada pesanan lain
+  `completeFlag=1` muncul **sebelum** state COMPLETED.
+- `bookingState` bisa telat ~15 detik dari pesan akhir ("driver sampai").
+- `sessionStatus` **tetap `"ACTIVE"`** setelah pesanan selesai (teramati
+  bertahan lama setelah COMPLETED) — jangan jadikan sinyal selesai.
+
+Kondisi terminal yang terverifikasi aman (gabungan):
+
+```python
+done = (bookingState == "COMPLETED"
+        or completeFlag == 1
+        or "Thanks for ordering" in messageStatus.title)
+```
+
+Urutan transisi nyata yang terekam penuh:
+
+```
+bookingState : ORDER_IN_PREPARE -> ORDER_EXECUTING -> COMPLETED
+messageStatus: "Kitchen's preparing your order"
+            -> "Out for delivery!"
+            -> "Look forward to delighting you again."   (driver sampai)
+            -> "Thanks for ordering with us. Enjoy!"     (final)
+
+
 ---
 
 ## 6. Penanganan Error & Kode Status HTTP
@@ -174,3 +230,766 @@ Tracking akan dihentikan secara otomatis jika salah satu kondisi berikut terpenu
 | `404 Not Found` | Token tidak ditemukan atau link sudah expired. | Lempar exception `GrabGone`, hentikan tracking. |
 | `429 Too Many Requests` / Rate Limit | Polling terlalu sering. | Terapkan exponential backoff atau hormati header `Retry-After`. |
 | `5xx / Network Error` | Masalah jaringan / server Grab temporary down. | Lakukan retry hingga batas maksimum (misal 30x berturut-turut). |
+
+
+---
+
+## 7. Contoh Response Nyata (Capture Langsung, 3 Siklus Hidup Penuh)
+
+> Response di bawah adalah capture asli dari endpoint nyata (polling 15 detik,
+> 25–26 Okt 2026), dengan nama driver / plat / kode booking / alamat customer
+> disamarkan. Struktur, tipe data, dan urutan field 100% asli.
+
+### 7.1 Contoh 1 — `ORDER_IN_PREPARE` (dapur menyiapkan, driver standby di merchant)
+
+Perhatikan: `ETAs` punya **2 elemen** `[driver→merchant, merchant→customer]`,
+driver masih di dekat merchant, `route.encodedSteps` polyline sudah tersedia,
+`completeFlag: 0`.
+
+```json
+{
+  "pass": true,
+  "token": "xrEXAMPLExxxXXXXXXXXXX",
+  "sessionStatus": "ACTIVE",
+  "useGrabMap": true,
+  "driver": {
+    "name": "JOHN DOE",
+    "profilePic": "https://prd-frs-face-images.s3.ap-southeast-1.amazonaws.com/profile/...jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=21600&...(presigned URL, dipotong)",
+    "rating": 5,
+    "location": {
+      "latitude": -7.731117,
+      "longitude": 109.003699
+    },
+    "serviceType": "BIKE",
+    "vehicleModel": "Honda Beat 110",
+    "vehiclePlateNumber": "R 0000 XX",
+    "plannedSteps": [
+      {
+        "bookingCodes": [
+          "A-EXAMPLECODE00AV"
+        ],
+        "location": {
+          "latitude": -7.731129,
+          "longitude": 109.003784
+        },
+        "state": "ACTIVE",
+        "isPickup": true
+      },
+      {
+        "bookingCodes": [
+          "A-EXAMPLECODE00AV"
+        ],
+        "location": {
+          "latitude": -7.718626,
+          "longitude": 109.023742
+        },
+        "state": "DRIVER_ACCEPTED",
+        "isDropOff": true
+      }
+    ],
+    "vehiclePictureUrl": "https://myteksi.s3.amazonaws.com/production/uploads/taxi_type/13503/icon/hdpi_icon-1677743666.png",
+    "CityID": 346
+  },
+  "booking": {
+    "bookingCode": "A-EXAMPLECODE00AV",
+    "bookingState": "ORDER_IN_PREPARE",
+    "pickup": {
+      "waypointID": "",
+      "location": {
+        "latitude": -7.731129,
+        "longitude": 109.003784
+      },
+      "keywords": "Albiru Nasi Kuning Nasi Uduk - Tegalreja"
+    },
+    "dropOff": {
+      "waypointID": "",
+      "location": {
+        "latitude": -7.718626,
+        "longitude": 109.023742
+      },
+      "keywords": "Jl. Example No.8 (alamat customer)"
+    }
+  },
+  "route": {
+    "steps": null,
+    "ETA": 1792973700,
+    "traffic": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "ETAs": [
+      4,
+      592
+    ],
+    "encodedSteps": {
+      "latitude": "h_{vM??op@gIkB{]_g@se@yf@@@FRBI?@???BJDE?DANy@s@g@S??Rd@r@z@ACF?FBB@AC?AALJDFE@JB?FA@DLUX^j@RtA~@f@J@D@D\\b@f@l@fAb@h@@|@b@Xl@rAvAfCvFfFh@l@bEbD|HlLm\\g`AgBgDeTsAqNyLeHaD_FcHuI_K_EqIaEeGuFmEyM_E_DcDsCeEmDwDqDoAyCyCaDyCkA}ZqCgGu]yOme@cRuRiCa\\yt@iDoLoNcGeEaPkLcJ|H",
+      "longitude": "ez`|nEgDhDO?@OMIK_OoH{|A_j@yB_d@k@i@oD}CUcCeKmWu_@eDg\\yAg[I]m@y@g@Sw@m@_@Ig[}c@m`@_MiW{MiLwDeJoSaCkH}PoLuM}DuIwAgH}K_E]_LsAqAaH_TeOwUcKqLuD}TmOyLqBq@iCi@sF{J_PsH}H}QmKqJU_T_FwDgDsHyC}EsKqLgAaBqI_GgPkVqKa`@m@aAyGe@cFgEeCy@s@@Np@l@~BtBdEvFlIzXbKfEdChB|BdAbALFIKq@c@]sHk@iB_KsEwKcGgGe@qIaUkAsDyEiB_BmFaEwCaS"
+    }
+  },
+  "reasonCode": 100,
+  "appFlyer": {
+    "isVisible": true,
+    "rating": {
+      "android": 4.8,
+      "ios": 4.8
+    },
+    "downloadLink": "https://grab.onelink.me/2695613898/pw72ckwn"
+  },
+  "messageStatus": {
+    "title": "Kitchen's preparing your order",
+    "processMsg": {
+      "message": "We'll let you know when it's out for delivery.",
+      "color": "#3D3D3D"
+    },
+    "icon": "https://assets-mobile.grab.com/deliveries/food/food_order_preparing.png"
+  },
+  "additionalOrderDetail": {
+    "isPendingDelivery": false,
+    "businessType": 0,
+    "completeFlag": 0
+  },
+  "uc": 9
+}
+```
+
+### 7.2 Contoh 2 — `ORDER_EXECUTING` (out for delivery, driver bergerak)
+
+Perhatikan: `ETAs` tinggal **1 elemen** `[merchant→customer]` setelah pickup,
+`driver.location` berubah tiap poll (GPS real-time), polyline kini mulai dari
+posisi driver saat itu.
+
+```json
+{
+  "pass": true,
+  "token": "xrEXAMPLExxxXXXXXXXXXX",
+  "sessionStatus": "ACTIVE",
+  "useGrabMap": true,
+  "driver": {
+    "name": "JANE DOE",
+    "profilePic": "https://prd-frs-face-images.s3.ap-southeast-1.amazonaws.com/profile/...jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=21600&...(presigned URL, dipotong)",
+    "rating": 5,
+    "location": {
+      "latitude": -7.731206,
+      "longitude": 109.003811
+    },
+    "serviceType": "BIKE",
+    "vehicleModel": "Honda Beat 110",
+    "vehiclePlateNumber": "B 1111 YY",
+    "plannedSteps": [
+      {
+        "bookingCodes": [
+          "A-EXAMPLECODE00AV"
+        ],
+        "location": {
+          "latitude": -7.731129,
+          "longitude": 109.003784
+        },
+        "state": "COMPLETED",
+        "isPickup": true
+      },
+      {
+        "bookingCodes": [
+          "A-EXAMPLECODE00AV"
+        ],
+        "location": {
+          "latitude": -7.718626,
+          "longitude": 109.023742
+        },
+        "state": "ACTIVE",
+        "isDropOff": true
+      }
+    ],
+    "vehiclePictureUrl": "https://myteksi.s3.amazonaws.com/production/uploads/taxi_type/13503/icon/hdpi_icon-1677743666.png",
+    "CityID": 346
+  },
+  "booking": {
+    "bookingCode": "A-EXAMPLECODE00AV",
+    "bookingState": "ORDER_EXECUTING",
+    "pickup": {
+      "waypointID": "",
+      "location": {
+        "latitude": -7.731129,
+        "longitude": 109.003784
+      },
+      "keywords": "Albiru Nasi Kuning Nasi Uduk - Tegalreja"
+    },
+    "dropOff": {
+      "waypointID": "",
+      "location": {
+        "latitude": -7.718626,
+        "longitude": 109.023742
+      },
+      "keywords": "Jl. Example No.8 (alamat customer)"
+    },
+    "dropOffTime": "2026-10-25T23:51:44Z"
+  },
+  "route": {
+    "steps": null,
+    "ETA": 1792973185,
+    "traffic": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "ETAs": [
+      594
+    ],
+    "encodedSteps": {
+      "latitude": "h_{vM?op@gIkB{]_g@se@yf@@@FRBI?@???BJDE?DANy@s@g@S??Rd@r@z@ACF?FBB@AC?AALJDFE@JB?FA@DLUX^j@RtA~@f@J@D@D\\b@f@l@fAb@h@@|@b@Xl@rAvAfCvFfFh@l@bEbD|HlLm\\g`AgBgDeTsAqNyLeHaD_FcHuI_K_EqIaEeGuFmEyM_E_DcDsCeEmDwDqDoAyCyCaDyCkA}ZqCgGu]yOme@cRuRiCa\\yt@iDoLoNcGeEaPkLcJ|H",
+      "longitude": "m_a|nEhDO?@OMIK_OoH{|A_j@yB_d@k@i@oD}CUcCeKmWu_@eDg\\yAg[I]m@y@g@Sw@m@_@Ig[}c@m`@_MiW{MiLwDeJoSaCkH}PoLuM}DuIwAgH}K_E]_LsAqAaH_TeOwUcKqLuD}TmOyLqBq@iCi@sF{J_PsH}H}QmKqJU_T_FwDgDsHyC}EsKqLgAaBqI_GgPkVqKa`@m@aAyGe@cFgEeCy@s@@Np@l@~BtBdEvFlIzXbKfEdChB|BdAbALFIKq@c@]sHk@iB_KsEwKcGgGe@qIaUkAsDyEiB_BmFaEwCaS"
+    }
+  },
+  "reasonCode": 100,
+  "appFlyer": {
+    "isVisible": true,
+    "rating": {
+      "android": 4.8,
+      "ios": 4.8
+    },
+    "downloadLink": "https://grab.onelink.me/2695613898/pw72ckwn"
+  },
+  "messageStatus": {
+    "title": "Out for delivery!",
+    "processMsg": {
+      "message": "Your order might arrive early!",
+      "color": "#3D3D3D"
+    },
+    "icon": "https://assets-mobile.grab.com/deliveries/food/order_delivery_2w.png"
+  },
+  "additionalOrderDetail": {
+    "isPendingDelivery": false,
+    "businessType": 0,
+    "completeFlag": 0
+  },
+  "uc": 26
+}
+```
+
+### 7.3 Contoh 3 — Driver tiba, pesan akhir sebelum state COMPLETED
+
+Perhatikan **anomali penting**: driver sudah di titik dropoff dan pesan sudah
+"selesai", tapi `bookingState` masih `ORDER_EXECUTING` dan `completeFlag`
+masih `0`. Ini bukti bahwa tidak ada field tunggal yang selalu transisi duluan.
+
+```json
+{
+  "pass": true,
+  "token": "xrEXAMPLExxxXXXXXXXXXX",
+  "sessionStatus": "ACTIVE",
+  "useGrabMap": true,
+  "driver": {
+    "name": "JANE DOE",
+    "profilePic": "https://prd-frs-face-images.s3.ap-southeast-1.amazonaws.com/profile/...jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=21600&...(presigned URL, dipotong)",
+    "rating": 5,
+    "location": {
+      "latitude": 0,
+      "longitude": 0
+    },
+    "serviceType": "BIKE",
+    "vehicleModel": "Honda Beat 110",
+    "vehiclePlateNumber": "B 1111 YY",
+    "vehiclePictureUrl": "https://myteksi.s3.amazonaws.com/production/uploads/taxi_type/13503/icon/hdpi_icon-1677743666.png",
+    "CityID": 346
+  },
+  "booking": {
+    "bookingCode": "A-EXAMPLECODE00AV",
+    "bookingState": "COMPLETED",
+    "pickup": {
+      "waypointID": "",
+      "location": {
+        "latitude": -7.731129,
+        "longitude": 109.003784
+      },
+      "keywords": "Albiru Nasi Kuning Nasi Uduk - Tegalreja"
+    },
+    "dropOff": {
+      "waypointID": "",
+      "location": {
+        "latitude": -7.718626,
+        "longitude": 109.023742
+      },
+      "keywords": "Jl. Example No.8 (alamat customer)"
+    },
+    "driverArrivalTime": "2026-10-26T00:02:25Z",
+    "dropOffTime": "2026-10-25T23:51:44Z",
+    "completeTime": "2026-10-26T00:02:25Z"
+  },
+  "route": {
+    "steps": null,
+    "ETA": 1792972945,
+    "traffic": null,
+    "ETAs": null,
+    "encodedSteps": null
+  },
+  "reasonCode": 100,
+  "appFlyer": {
+    "isVisible": true,
+    "rating": {
+      "android": 4.8,
+      "ios": 4.8
+    },
+    "downloadLink": "https://grab.onelink.me/2695613898/pw72ckwn"
+  },
+  "messageStatus": {
+    "title": "",
+    "processMsg": {
+      "message": "Thanks for ordering with us. Enjoy!",
+      "color": ""
+    },
+    "icon": "https://assets-mobile.grab.com/deliveries/food/order_delivery_2w.png"
+  },
+  "additionalOrderDetail": {
+    "isPendingDelivery": false,
+    "businessType": 0,
+    "completeFlag": 0
+  },
+  "uc": 71
+}
+```
+
+### 7.4 Contoh 4 — Final: `COMPLETED` (data tracking dibersihkan)
+
+Perhatikan: `bookingState: "COMPLETED"`, tapi `completeFlag` **tetap 0**
+(ini nyata, bukan typo!), `driver.location` di-reset ke `(0,0)`,
+`route.ETAs`/`encodedSteps`/`traffic` menjadi `null`, dan waktu-waktu
+penyelesaian (`driverArrivalTime`, `dropOffTime`, `completeTime`) muncul di
+objek `booking`. **`sessionStatus` tetap `"ACTIVE"`** meski pesanan selesai.
+
+```json
+{
+  "pass": true,
+  "token": "xrEXAMPLExxxXXXXXXXXXX",
+  "sessionStatus": "ACTIVE",
+  "useGrabMap": true,
+  "driver": {
+    "name": "JOHN DOE",
+    "profilePic": "https://prd-frs-face-images.s3.ap-southeast-1.amazonaws.com/profile/...jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=21600&...(presigned URL, dipotong)",
+    "rating": 5,
+    "location": {
+      "latitude": 0,
+      "longitude": 0
+    },
+    "serviceType": "BIKE",
+    "vehicleModel": "Honda Vario 125",
+    "vehiclePlateNumber": "R 0000 XX",
+    "vehiclePictureUrl": "https://myteksi.s3.amazonaws.com/production/uploads/taxi_type/13503/icon/hdpi_icon-1677743666.png",
+    "CityID": 346
+  },
+  "booking": {
+    "bookingCode": "A-EXAMPLECODE00AV",
+    "bookingState": "COMPLETED",
+    "pickup": {
+      "waypointID": "",
+      "location": {
+        "latitude": -7.724511963298966,
+        "longitude": 109.01690166520325
+      },
+      "keywords": "Dunia Sop Soetomo - Sidakaya"
+    },
+    "dropOff": {
+      "waypointID": "",
+      "location": {
+        "latitude": -7.718594074249268,
+        "longitude": 109.02386474609376
+      },
+      "keywords": "Jl. Example No.8 (alamat customer)"
+    },
+    "driverArrivalTime": "2026-10-25T07:07:46Z",
+    "dropOffTime": "2026-10-25T07:05:37Z",
+    "completeTime": "2026-10-25T07:07:46Z"
+  },
+  "route": {
+    "steps": null,
+    "ETA": 1792912066,
+    "traffic": null,
+    "ETAs": null,
+    "encodedSteps": null
+  },
+  "reasonCode": 100,
+  "appFlyer": {
+    "isVisible": true,
+    "rating": {
+      "android": 4.8,
+      "ios": 4.8
+    },
+    "downloadLink": "https://grab.onelink.me/2695613898/pw72ckwn"
+  },
+  "messageStatus": {
+    "title": "",
+    "processMsg": {
+      "message": "Your order arrived ahead of time. Yay!",
+      "color": ""
+    },
+    "icon": "https://assets-mobile.grab.com/deliveries/food/order_delivery_2w.png"
+  },
+  "additionalOrderDetail": {
+    "isPendingDelivery": false,
+    "businessType": 0,
+    "completeFlag": 1
+  },
+  "uc": 328
+}
+```
+
+### 7.5 Ringkasan Perubahan Antar Fase (Cheat Sheet)
+
+| Field | IN_PREPARE | EXECUTING | Driver tiba | COMPLETED |
+|---|---|---|---|---|
+| `booking.bookingState` | ORDER_IN_PREPARE | ORDER_EXECUTING | ORDER_EXECUTING | COMPLETED |
+| `booking.completeFlag` | 0 | 0 | 0 **atau** 1 | 0 **atau** 1 |
+| `messageStatus.title` | Kitchen's preparing your order | Out for delivery! | Look forward to delighting you again. | Thanks for ordering with us. Enjoy! |
+| `route.ETAs` | `[a, b]` (2 leg) | `[b]` (1 leg, turun) | `[≤5]` | `null` |
+| `route.encodedSteps` | polyline (merchant→cust) | polyline (pos driver→cust, ter-update) | polyline pendek | `null` |
+| `route.traffic` | array 0/1 per segmen | array 0/1 per segmen | array pendek | `null` |
+| `driver.location` | dekat merchant | bergerak tiap poll | titik dropoff | `{0,0}` |
+| `booking.completeTime` | tidak ada | tidak ada | tidak ada / kosong | ISO-8601 UTC |
+| `sessionStatus` | ACTIVE | ACTIVE | ACTIVE | ACTIVE |
+
+---
+
+## 8. Cara Kerja `route.encodedSteps` (Hasil Decode Nyata)
+
+`encodedSteps` **bukan garis lurus** antar dua titik — ini polyline hasil
+routing engine Grab yang menempel jalan sungguhan. Decode order nyata:
+
+- 81 titik; segmen rata-rata **25.5 m**; total jalur **2 040 m**
+- Garis lurus pickup→dropoff hanya **1 013 m** → jalur menyimpang 2×,
+  konsisten mengikuti jalan/gang sungguhan
+- Titik pertama == `driver.location` saat response dibuat (**jarak 0.0 m**)
+- Titik terakhir == koordinat `dropOff` persis
+
+### ⚠️ Precision encoding: 1e6, BUKAN 1e5
+
+String-nya menyerupai Google encoded polyline standar, tapi dekoder standar
+(delta + precision 1e5) menghasilkan nilai ngawur (misal `-77.27, 1090.13`).
+Precision yang benar adalah **1e6** — koma 6 desimal:
+
+```python
+def decode_grab_polyline(lat_s: str, lng_s: str):
+    """Decode route.encodedSteps.latitude/.longitude (Grab variant).
+    Terverifikasi: titik[0] == driver.location, titik[-1] == dropOff coords."""
+    def dec(s: str):
+        vals, acc, shift, i = [], 0, 0, 0
+        while i < len(s):
+            b = ord(s[i]) - 63; i += 1
+            acc |= (b & 0x1f) << shift; shift += 5
+            if b < 0x20:
+                # delta di-akumulasi (varint), lalu /1e6 — bukan /1e5
+                acc += ~(acc >> 1) if acc & 1 else acc >> 1
+                vals.append(acc); shift = 0
+        return vals
+    return list(zip([v / 1e6 for v in dec(lat_s)],
+                    [v / 1e6 for v in dec(lng_s)]))
+```
+
+### `route.traffic`
+
+Array integer, panjang = jumlah segmen (order nyata: 80 nilai untuk 81
+titik). Nilai teramati hanya `0` dan `1` per segmen (indikasi lancar/padat).
+Setelah pesanan selesai nilainya `null`.
