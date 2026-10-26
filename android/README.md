@@ -1,16 +1,19 @@
 # GARP Android
 
-Aplikasi Android native (Kotlin + Jetpack Compose, Material 3, tema gelap Haulix-style) untuk tracker pesanan GrabFood GARP.
+Aplikasi Android native (Kotlin + Jetpack Compose, Material 3, tema **Vercel/Linear flat dark**) untuk tracker pesanan GrabFood GARP — selaras penuh dengan frontend web.
 
-## Struktur
-- `app/src/main/java/com/garp/tracker/`
-  - `MainActivity.kt` — entry point; menerima share-link Grab (`ACTION_SEND`) dari app Grab/browser.
-  - `data/Models.kt` — `Order`, `Stats` (kotlinx.serialization, cocok dengan shape JSON backend FastAPI).
-  - `data/GarpApi.kt` — klien HTTP (Ktor): POST/GET/DELETE `/api/orders`, GET `/api/stats`.
-  - `ui/` — `GarpApp` (nav bottom bar: Peta / Pesanan / Analitik), `MapScreen` (peta mini canvas + marker driver/tujuan), `OrdersScreen`, `OrderDetailScreen`, `AnalyticsScreen`, `GarpViewModel` (polling tiap 8s, selaras frontend).
+## Fitur (v2.0.0, rework 2026-10-26)
+- **Tema Vercel/Linear**: near-black netral, accent indigo `#5E6AD2`, mono labels — sama dengan web.
+- **Pesanan**: baris 1-line (avatar/nama+kode/badge/jam), search, **pagination 15/halaman**, hapus dengan konfirmasi.
+- **Foto driver** dari `driver_photo` (S3 presigned) — di list, peta, dan detail; fallback inisial merchant.
+- **Peta multi-track**: semua orderan aktif tampil bersamaan, garis rute dashed driver→tujuan, float card dengan ETA + caveat double order.
+- **Detail**: rating driver, status message Grab, kendaraan/plat, tujuan, waktu WIB (`toWibTime`), caveat double-order (multi-stop).
+- **Analitik**: Hari ini (WIB), Aktif, Total+Batal, Nilai total, Top merchants, bar chart 30 hari.
+- **Polling 5 detik** selaras frontend.
+- **Share-link Grab** (`ACTION_SEND`) langsung membuka form tempel link.
 
 ## Konfigurasi backend
-Default base URL: `http://10.0.2.2:8000` (emulator → host). Ubah di `data/GarpApi.kt` jika backend di LAN/server, mis. `http://192.168.1.10:8000`. Pastikan backend FastAPI GARP berjalan di port 8000.
+Default base URL: `http://10.0.2.2:8000` (emulator → host). Ubah lewat ikon ⚙ di kanan atas.
 
 ## Build
 ```bash
@@ -20,4 +23,4 @@ gradle wrapper --gradle-version 8.7   # sekali, jika belum ada gradlew
 ```
 APK: `app/build/outputs/apk/debug/app-debug.apk`
 
-CI: `.github/workflows/android-build.yml` (root repo) membangun debug + release APK di GitHub Actions dan mengunggahnya sebagai artifact.
+CI: `.github/workflows/android-build.yml` membangun debug + release APK di GitHub Actions (artifact `garp-debug-apk` / `garp-release-apk-unsigned`).

@@ -13,8 +13,8 @@ android {
         applicationId = "com.garp.tracker"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "2.0.0"
     }
 
     buildTypes {
@@ -51,6 +51,9 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
 
     implementation("androidx.navigation:navigation-compose:2.8.1")
+
+    // Async image (driver photo)
+    implementation("io.coil-kt:coil-compose:2.6.0")
 
     // Network
     implementation("io.ktor:ktor-client-core:2.3.12")

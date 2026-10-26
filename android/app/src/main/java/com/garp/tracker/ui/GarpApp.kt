@@ -66,9 +66,9 @@ fun GarpApp(
                         icon = { Icon(icon, contentDescription = label) },
                         label = { Text(label) },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = AccentGreen,
-                            selectedTextColor = AccentGreen,
-                            indicatorColor = AccentGreen.copy(alpha = 0.15f),
+                            selectedIconColor = Accent,
+                            selectedTextColor = Accent,
+                            indicatorColor = Accent.copy(alpha = 0.15f),
                             unselectedIconColor = TextMuted,
                             unselectedTextColor = TextMuted,
                         )
@@ -80,8 +80,8 @@ fun GarpApp(
             if (selectedOrderId == null) {
                 FloatingActionButton(
                     onClick = { showAddSheet = true },
-                    containerColor = AccentGreen,
-                    contentColor = Color(0xFF06130B),
+                    containerColor = Accent,
+                    contentColor = Color.White,
                     shape = CircleShape,
                 ) {
                     Icon(Icons.Filled.Add, "Tempel link")
@@ -140,11 +140,11 @@ fun ServerUrlDialog(currentUrl: String, onDismiss: () -> Unit, onSave: (String) 
                     placeholder = { Text(GarpApi.DEFAULT_BASE_URL, color = TextMuted) },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = AccentGreen,
+                        focusedBorderColor = Accent,
                         unfocusedBorderColor = Border,
                         focusedTextColor = TextPrimary,
                         unfocusedTextColor = TextPrimary,
-                        cursorColor = AccentGreen,
+                        cursorColor = Accent,
                     ),
                     shape = RoundedCornerShape(12.dp)
                 )
@@ -152,7 +152,7 @@ fun ServerUrlDialog(currentUrl: String, onDismiss: () -> Unit, onSave: (String) 
         },
         confirmButton = {
             TextButton(onClick = { if (url.isNotBlank()) onSave(url) }, enabled = url.isNotBlank()) {
-                Text("Simpan", color = AccentGreen, fontWeight = FontWeight.SemiBold)
+                Text("Simpan", color = Accent, fontWeight = FontWeight.SemiBold)
             }
         },
         dismissButton = {
@@ -179,11 +179,11 @@ fun AddOrderSheet(onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = AccentGreen,
+                    focusedBorderColor = Accent,
                     unfocusedBorderColor = Border,
                     focusedTextColor = TextPrimary,
                     unfocusedTextColor = TextPrimary,
-                    cursorColor = AccentGreen,
+                    cursorColor = Accent,
                 ),
                 shape = RoundedCornerShape(12.dp)
             )
@@ -191,7 +191,7 @@ fun AddOrderSheet(onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
                 onClick = { if (link.isNotBlank()) onSubmit(link.trim()) },
                 enabled = link.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = AccentGreen,
+                    containerColor = Accent,
                     contentColor = androidx.compose.ui.graphics.Color(0xFF06130B)
                 ),
                 modifier = Modifier.fillMaxWidth().height(48.dp),
