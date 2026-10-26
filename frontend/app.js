@@ -143,7 +143,7 @@ $$('.mobilebar button').forEach((n) => n.addEventListener('click', () => setPage
 /* ================================================================
    BIG MAP
    ================================================================ */
-let bigMap, markers = {}, SELECTED_ID = null, ORDERS = [], liveTimer = null, mockT = 0;
+let bigMap, markers = {}, SELECTED_ID = null, idleFocused = false, ORDERS = [], liveTimer = null, mockT = 0;
 let routeSrcAdded = false;
 
 function initBigMap() {
@@ -249,16 +249,36 @@ function selectOrder(id, { fly = true } = {}) {
 let overviewDone = false;
 function fitAllActive() {
   if (!bigMap) return;
+  const actives = ORDERS.filter((o) => o.lat != null && ['prepare', 'allocated', 'ontheway'].includes(o.status));
+  if (!actives.length) return;
+  // 1 order aktif → flyTo halus ke area order itu (driver + tujuan); multi → fitBounds semua
+  if (actives.length === 1) {
+    const o = actives[0];
+    const pts = [[o.lng, o.lat]];
+    if (o.destLat != null) pts.push([o.destLng, o.destLat]);
+    const bb = pts.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(pts[0], pts[0]));
+    bigMap.fitBounds(bb, { padding: { top: 120, bottom: 280, left: 80, right: 80 }, maxZoom: 16, duration: 900 });
+    return;
+  }
   const pts = [];
-  ORDERS.filter((o) => o.lat != null && ['prepare', 'allocated', 'ontheway'].includes(o.status))
-    .forEach((o) => {
-      pts.push([o.lng, o.lat]);
-      if (o.destLat != null) pts.push([o.destLng, o.destLat]);
-      (o.route || []).forEach(([a, b]) => pts.push([b, a]));
-    });
-  if (!pts.length) return;
+  actives.forEach((o) => {
+    pts.push([o.lng, o.lat]);
+    if (o.destLat != null) pts.push([o.destLng, o.destLat]);
+    (o.route || []).forEach(([a, b]) => pts.push([b, a]));
+  });
   const bb = pts.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(pts[0], pts[0]));
-  bigMap.fitBounds(bb, { padding: { top: 90, bottom: 250, left: 60, right: 60 }, maxZoom: 15, duration: 600 });
+  bigMap.fitBounds(bb, { padding: { top: 90, bottom: 250, left: 60, right: 60 }, maxZoom: 15, duration: 900 });
+}
+
+/* Tidak ada order aktif → fokus ke last location pesanan terakhir */
+function flyToLastOrder() {
+  if (!bigMap) return;
+  const last = ORDERS.find((o) => o.lat != null && !(o.lat === 0 && o.lng === 0))
+    || ORDERS.find((o) => o.destLat != null && !(o.destLat === 0 && o.destLng === 0));
+  const lat = last ? (last.lat != null && !(last.lat === 0 && last.lng === 0) ? last.lat : last.destLat) : null;
+  const lng = last ? (last.lat != null && !(last.lat === 0 && last.lng === 0) ? last.lng : last.destLng) : null;
+  if (lat == null || lng == null) return;
+  bigMap.flyTo({ center: [lng, lat], zoom: Math.max(bigMap.getZoom(), 14.5), duration: 900 });
 }
 
 function renderStrip() {
@@ -321,7 +341,7 @@ function renderFloatCard(o) {
     etaItem.closest('.fc-eta-item').appendChild(caveat);
   }
   caveat.textContent = (!done && o.multiStop && o.eta != null) ? 'ETA ke stop berikutnya (double order)' : '';
-  const sm = $('#fc-status-msg') || (() => { const d = document.createElement('div'); d.id = 'fc-status-msg'; d.className = 'fc-meta'; $('#fc-body').prepend(d); return d; })();
+  const sm = $('#fc-status-msg') || (() => { const d = document.createElement('div'); d.id = 'fc-status-msg'; d.className = 'fc-meta'; document.querySelector('#float-card .fc-body').prepend(d); return d; })();
   sm.textContent = o.statusMessage || '';
 }
 
@@ -564,7 +584,7 @@ async function refresh() {
   if (currentPage === 'analytics') initCharts();
   if (currentPage === 'map') {
     renderStrip();
-    renderMarkers();
+    try { renderMarkers(); } catch (e) { console.warn('map render failed', e); }
     const active = ORDERS.filter((o) => ['prepare', 'allocated', 'ontheway'].includes(o.status));
     const sel = ORDERS.find((o) => o.id === SELECTED_ID);
     if (sel && active.some((o) => o.id === sel.id)) renderFloatCard(sel);
@@ -578,7 +598,10 @@ async function refresh() {
     }
     if (SELECTED_ID) startOrderStream(SELECTED_ID);
     if (!overviewDone && active.length) { overviewDone = true; fitAllActive(); }
-    if (!active.length) overviewDone = false;
+    if (!active.length) {
+      overviewDone = false;
+      if (!idleFocused) { idleFocused = true; flyToLastOrder(); }
+    } else idleFocused = false;
   }
 }
 function renderKPIs(stats) {
@@ -598,4 +621,5 @@ setPage('map');
 initFcCollapse();
 startAnalyticsLoop();
 refresh();
-setInterval(() => { if (currentPage !== 'map') refresh(); }, 8000);
+// Refresh juga di halaman peta: fokus otomatis & marker ikut order baru (stream hanya update 1 order terpilih)
+setInterval(() => { refresh(); }, 8000);
