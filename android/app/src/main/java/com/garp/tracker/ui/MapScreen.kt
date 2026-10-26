@@ -1,6 +1,6 @@
 package com.garp.tracker.ui
 
-import android.graphics.Color
+import android.graphics.Color as AwtColor
 import android.preference.PreferenceManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -180,7 +180,7 @@ private fun OsmMap(orders: List<Order>, onMarkerTap: (String) -> Unit, modifier:
                         setPoints(listOf(driver, dest))
                         outlinePaint.color = dColor.copy(alpha = 0.65f).toArgb()
                         outlinePaint.strokeWidth = 6f
-                        outlinePaint.strokeDashPathEffect = floatArrayOf(12f, 9f)
+                        outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(12f, 9f), 0f)
                     }.also { map.overlays.add(it) }
                     Marker(map).apply {
                         position = dest
