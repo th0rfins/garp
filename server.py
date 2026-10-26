@@ -35,7 +35,10 @@ CREATE TABLE IF NOT EXISTS orders (
   eta_seconds INTEGER, driver_name TEXT, driver_vehicle TEXT, driver_plate TEXT,
   driver_lat REAL, driver_lng REAL, dest_lat REAL, dest_lng REAL,
   dest_text TEXT, error TEXT, poll_failures INTEGER DEFAULT 0,
-  created_at TEXT, updated_at TEXT
+  created_at TEXT, updated_at TEXT,
+  status_message TEXT, driver_rating INTEGER, driver_photo TEXT,
+  complete_time TEXT, dropoff_time TEXT, driver_arrival_time TEXT,
+  multi_stop INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT, ts TEXT, kind TEXT, text TEXT
@@ -112,40 +115,111 @@ def _headers(token: str) -> dict:
 
 TERMINAL = ("COMPLETE", "CANCEL", "DELIVER", "EXPIRED", "TERMINAT")
 
+def _decode_grab_polyline(lat_s: str, lng_s: str) -> list:
+    """Decode route.encodedSteps.latitude/.longitude (Grab variant, precision 1e6
+    — NOT standard 1e5; verified: point[0]==driver.location, point[-1]==dropoff)."""
+    def dec(s: str):
+        out, chunk, shift, total = [], 0, 0, 0
+        for ch in s:
+            b = ord(ch) - 63
+            chunk |= (b & 0x1f) << shift
+            shift += 5
+            if b < 0x20:
+                delta = ~(chunk >> 1) if chunk & 1 else chunk >> 1
+                total += delta          # deltas accumulate to absolute coords
+                out.append(total)
+                chunk, shift = 0, 0
+        return out
+    lats, lngs = dec(lat_s), dec(lng_s)
+    n = min(len(lats), len(lngs))
+    return [[lats[i] / 1e6, lngs[i] / 1e6] for i in range(n)]
+
+def _extract_route(d: dict) -> dict:
+    """route.encodedSteps -> point list + traffic array (null after completion)."""
+    route = d.get("route") or {}
+    enc = route.get("encodedSteps") or {}
+    if not enc or not enc.get("latitude"):
+        return {}
+    try:
+        pts = _decode_grab_polyline(enc["latitude"], enc["longitude"])
+    except Exception:
+        return {}
+    if not pts:
+        return {}
+    out = {"points": pts}
+    traffic = route.get("traffic")
+    if traffic and len(traffic) == max(len(pts) - 1, 0):
+        out["traffic"] = traffic
+    return out
+
 def map_state(d: dict) -> dict:
-    """Map Grab bookingdetails payload to our order snapshot fields."""
+    """Map Grab bookingdetails payload to our order snapshot fields.
+
+    Terminal reliability (FIELD_OBSERVATIONS.md sec.4): completeFlag can stay 0
+    even after bookingState==COMPLETED, and bookingState can lag ~15s behind the
+    final message. The safe combined condition:
+        COMPLETED | completeFlag==1 | "Thanks for ordering" in final message.
+    sessionStatus stays ACTIVE long after completion — never a done-signal.
+    """
     booking = d.get("booking") or {}
     driver = d.get("driver") or {}
     route = d.get("route") or {}
     add = d.get("additionalOrderDetail") or {}
-    state = booking.get("bookingState") or ""
+    state = (booking.get("bookingState") or "").upper()
     session = d.get("sessionStatus") or ""
+    msg = (d.get("messageStatus") or {})
+    final_msg = (msg.get("processMsg") or {}).get("message") or msg.get("title") or ""
     loc = (driver.get("location") or {})
     drop = (booking.get("dropOff") or {})
     droploc = drop.get("location") or drop.get("latlng") or {}
     etas = route.get("ETAs") or []
-    if session != "ACTIVE" or add.get("completeFlag") == 1 or any(t in state.upper() for t in TERMINAL):
-        if "CANCEL" in state.upper() or "EXPIRED" in state.upper() or "TERMINAT" in session.upper():
-            status = "cancelled"
-        else:
-            status = "completed"
-    elif "ON_THE_WAY" in state.upper() or "DELIVER" in state.upper() or driver.get("name"):
+    # driver (0,0) = reset after completion — discard (FIELD_OBSERVATIONS sec.7)
+    dlat, dlng = loc.get("latitude"), loc.get("longitude")
+    if (dlat == 0 and dlng == 0) or dlat is None or dlng is None:
+        dlat = dlng = None
+    done = (state == "COMPLETED" or add.get("completeFlag") == 1
+            or "thanks for ordering" in final_msg.lower())
+    cancelled = ("CANCEL" in state or "EXPIRED" in state or "TERMINAT" in session.upper())
+    if cancelled:
+        status = "cancelled"
+    elif done or any(t in state for t in TERMINAL):
+        status = "completed"
+    elif state in ("ORDER_EXECUTING", "ON_THE_WAY") or "DELIVER" in state:
         status = "ontheway"
     else:
         status = "prepare"
+    # ETAs: 2 legs pre-pickup [driver->merchant, merchant->customer]; 1 leg after.
+    eta_seconds = (etas[1] if len(etas) > 1 else etas[0]) if etas else None
+    # Multi-order (sec.9): ETAs counts to the driver's NEXT ACTIVE stop — which may be
+    # another customer's dropoff. Detect via plannedSteps so the UI can caveat the ETA.
+    steps = driver.get("plannedSteps") or []
+    active_next = None
+    for st in steps:
+        codes = st.get("bookingCodes") or []
+        if st.get("state") == "ACTIVE" and st.get("isDropOff") and booking_code not in codes:
+            active_next = True
+            break
+    multi_stop = bool(active_next) or len({c for st in steps for c in (st.get("bookingCodes") or [])}) > 1
     return {
+        "multi_stop": int(multi_stop),
+        "driver_arrival_time": booking.get("driverArrivalTime") or None,
         "merchant": (booking.get("pickup") or {}).get("keywords") or "",
         "booking_code": booking.get("bookingCode") or "",
         "status": status,
-        "eta_seconds": etas[0] if etas else None,
+        "eta_seconds": eta_seconds,
+        "status_message": final_msg or None,
         "driver_name": driver.get("name") or "",
         "driver_vehicle": driver.get("vehicleModel") or "",
         "driver_plate": driver.get("vehiclePlateNumber") or "",
-        "driver_lat": loc.get("latitude"),
-        "driver_lng": loc.get("longitude"),
+        "driver_rating": driver.get("rating"),
+        "driver_photo": driver.get("profilePic") or "",
+        "driver_lat": dlat,
+        "driver_lng": dlng,
         "dest_lat": droploc.get("latitude") or droploc.get("lat"),
         "dest_lng": droploc.get("longitude") or droploc.get("lng"),
         "dest_text": drop.get("keywords") or "",
+        "complete_time": booking.get("completeTime") or booking.get("dropOffTime") or None,
+        "dropoff_time": booking.get("dropOffTime") or None,
         "session": session,
     }
 
@@ -186,10 +260,17 @@ async def poll_once(client: httpx.AsyncClient, oid: str) -> dict | None:
     snap = map_state(data)
     snap["error"] = None
     snap["poll_failures"] = 0
+    route_data = _extract_route(data)
+    if route_data:
+        snap["route_points"] = route_data.get("points")
+        snap["traffic"] = route_data.get("traffic")
     changed = any(snap.get(k) != o.get(k) for k in ("status", "eta_seconds", "driver_lat", "driver_lng", "merchant", "booking_code"))
+    prev_status = o.get("status")
     o.update(snap)
     o["updated_at"] = _now()
     _save_order(o)
+    if changed and prev_status != o.get("status"):
+        _add_event(oid, "status", f"{prev_status} → {o.get('status')}")
     if changed or oid in _watchers:
         await _emit(oid)
     if o["status"] in ("completed", "cancelled"):
@@ -200,16 +281,23 @@ async def poll_once(client: httpx.AsyncClient, oid: str) -> dict | None:
 
 def _save_order(o: dict):
     con = _db()
+    for col, _ in NEW_COLUMNS:
+        o.setdefault(col, None)
     con.execute("""INSERT INTO orders (id, token, short_code, link, merchant, booking_code, status, eta_seconds,
         driver_name, driver_vehicle, driver_plate, driver_lat, driver_lng, dest_lat, dest_lng, dest_text,
-        error, poll_failures, created_at, updated_at)
+        error, poll_failures, created_at, updated_at,
+        status_message, driver_rating, driver_photo, complete_time, dropoff_time, driver_arrival_time, multi_stop)
         VALUES (:id,:token,:short_code,:link,:merchant,:booking_code,:status,:eta_seconds,
         :driver_name,:driver_vehicle,:driver_plate,:driver_lat,:driver_lng,:dest_lat,:dest_lng,:dest_text,
-        :error,:poll_failures,:created_at,:updated_at)
+        :error,:poll_failures,:created_at,:updated_at,
+        :status_message,:driver_rating,:driver_photo,:complete_time,:dropoff_time,:driver_arrival_time,:multi_stop)
         ON CONFLICT(id) DO UPDATE SET merchant=:merchant, booking_code=:booking_code, status=:status,
         eta_seconds=:eta_seconds, driver_name=:driver_name, driver_vehicle=:driver_vehicle, driver_plate=:driver_plate,
         driver_lat=:driver_lat, driver_lng=:driver_lng, dest_lat=:dest_lat, dest_lng=:dest_lng, dest_text=:dest_text,
-        error=:error, poll_failures=:poll_failures, updated_at=:updated_at""", o)
+        error=:error, poll_failures=:poll_failures, updated_at=:updated_at,
+        status_message=:status_message, driver_rating=:driver_rating, driver_photo=:driver_photo,
+        complete_time=:complete_time, dropoff_time=:dropoff_time,
+        driver_arrival_time=:driver_arrival_time, multi_stop=:multi_stop""", o)
     con.commit()
     con.close()
 
@@ -274,15 +362,32 @@ async def _emit(oid: str):
 
 def _snapshot(o: dict) -> dict:
     keys = ("id", "merchant", "booking_code", "status", "eta_seconds", "driver_name",
-            "driver_vehicle", "driver_plate", "driver_lat", "driver_lng", "dest_lat",
-            "dest_lng", "dest_text", "link", "error", "created_at", "updated_at")
-    return {k: o.get(k) for k in keys}
+            "driver_vehicle", "driver_plate", "driver_rating", "driver_photo",
+            "status_message", "driver_lat", "driver_lng", "dest_lat",
+            "dest_lng", "dest_text", "complete_time", "dropoff_time",
+            "driver_arrival_time", "multi_stop",
+            "link", "error", "created_at", "updated_at")
+    snap = {k: o.get(k) for k in keys}
+    if o.get("route_points"):
+        snap["route"] = o["route_points"]
+        snap["traffic"] = o.get("traffic")
+    return snap
 
 # ---------------- app ----------------
 
+NEW_COLUMNS = (("status_message", "TEXT"), ("driver_rating", "INTEGER"),
+               ("driver_photo", "TEXT"), ("complete_time", "TEXT"), ("dropoff_time", "TEXT"),
+               ("driver_arrival_time", "TEXT"), ("multi_stop", "INTEGER"))
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    con = _db(); con.executescript(DB_INIT); con.close()
+    con = _db(); con.executescript(DB_INIT)
+    for col, typ in NEW_COLUMNS:
+        try:
+            con.execute(f"ALTER TABLE orders ADD COLUMN {col} {typ}")
+        except sqlite3.OperationalError:
+            pass  # already exists
+    con.commit(); con.close()
     _load_orders()
     task = asyncio.create_task(poller())
     yield
@@ -304,7 +409,20 @@ async def add_order(body: OrderIn):
         short_code, token = await resolve_short_link(client, link)
     oid = token[-10:] or f"o{int(time.time())}"
     if oid in _orders:
-        return _snapshot(_orders[oid])
+        o = _orders[oid]
+        # re-fetch even for known orders: session data stays available after
+        # completion (FIELD_OBSERVATIONS sec.8) and completes stale snapshots
+        try:
+            async with httpx.AsyncClient() as client:
+                r = await client.get(f"https://api.grab.com/api/v1/safety/sharemyride/{token}/bookingdetails",
+                                     params={"fullData": "true"}, headers=_headers(token), timeout=12)
+                if r.status_code == 200 and r.json().get("pass"):
+                    o.update(map_state(r.json()))
+                    o["updated_at"] = _now()
+                    _save_order(o)
+        except Exception:
+            pass
+        return _snapshot(o)
     o = {"id": oid, "token": token, "short_code": short_code, "link": link,
          "status": "prepare", "poll_failures": 0, "error": None,
          "created_at": _now(), "updated_at": _now()}
@@ -328,13 +446,15 @@ async def add_order(body: OrderIn):
 
 @app.get("/api/orders")
 async def list_orders():
-    return [_snapshot(o) for o in sorted(_orders.values(), key=lambda x: x.get("created_at") or "", reverse=True)]
+    named = [o for o in _orders.values() if (o.get("merchant") or "").strip()]
+    return [_snapshot(o) for o in sorted(named, key=lambda x: x.get("created_at") or "", reverse=True)]
 
 @app.get("/api/orders/{oid}")
 async def get_order(oid: str):
-    if oid not in _orders:
+    o = _orders.get(oid)
+    if o is None or not (o.get("merchant") or "").strip():
         raise HTTPException(404, "Order tidak ditemukan")
-    return _snapshot(_orders[oid])
+    return _snapshot(o)
 
 @app.delete("/api/orders/{oid}")
 async def delete_order(oid: str):
@@ -354,13 +474,32 @@ async def stats():
     active = sum(1 for o in orders if o["status"] in ("prepare", "ontheway"))
     done = sum(1 for o in orders if o["status"] == "completed")
     canc = sum(1 for o in orders if o["status"] == "cancelled")
-    # daily counts last 7 days
+    # daily counts last 30 days
     daily = {}
     for o in orders:
         day = (o.get("created_at") or "")[:10]
         daily[day] = daily.get(day, 0) + 1
+    # merchant frequency (named orders only)
+    freq = {}
+    for o in orders:
+        m = (o.get("merchant") or "").strip()
+        if m:
+            freq[m] = freq.get(m, 0) + 1
+    top_merchants = [{"name": k, "count": v} for k, v in
+                     sorted(freq.items(), key=lambda x: -x[1])[:10]]
+    # "today" in Indonesian Western Time (UTC+7)
+    from datetime import datetime, timezone, timedelta
+    wib = timezone(timedelta(hours=7))
+    today = datetime.now(wib).strftime("%Y-%m-%d")
+    today_count = sum(1 for o in orders if (o.get("created_at") or "")[:10] == today)
+    avg_eta = None
+    etas = [o["eta_seconds"] for o in orders if o.get("eta_seconds")]
+    if etas:
+        avg_eta = round(sum(etas) / len(etas))
+    value = sum(1 for o in orders if o["status"] == "completed") * 15000
     return {"total": total, "active": active, "completed": done, "cancelled": canc,
-            "value": total * 15000, "daily": daily}
+            "value": value, "daily": daily, "top_merchants": top_merchants,
+            "avg_eta_seconds": avg_eta, "today": today, "today_count": today_count}
 
 @app.get("/api/orders/{oid}/stream")
 async def stream(oid: str):
