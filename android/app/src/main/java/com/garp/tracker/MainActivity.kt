@@ -24,6 +24,7 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var web: WebView
     private var pendingLink: String? = null
+    private var initialLink: String? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -45,51 +46,60 @@ class MainActivity : ComponentActivity() {
         web.setBackgroundColor(0xFF0A0A0B.toInt())
         web.addJavascriptInterface(Bridge(), "AndroidBridge")
         web.webChromeClient = WebChromeClient()
-        web.webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                // Buka link external (app.grab.com dll) di browser, bukan di app
-                val u = request.url
-                return if (u.host != null && u.host!!.endsWith("projectpop.xyz") || u.host == "10.0.2.2" || u.host == "localhost") {
-                    false
-                } else {
-                    startActivity(Intent(Intent.ACTION_VIEW, u))
-                    true
-                }
-            }
-        }
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (web.canGoBack()) web.goBack() else finish()
             }
         })
 
-        // Hilangkan splash flash: visible setelah page pertama
         web.visibility = View.VISIBLE
         web.loadUrl(url)
 
-        pendingLink = extractUrl(intent)
+        pendingLink = try { extractUrl(intent) } catch (_: Exception) { null }
+        pendingLink?.let { initialLink = it }
+        web.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                val u = request.url
+                return if (u.host != null && (u.host!!.endsWith("projectpop.xyz") || u.host == "10.0.2.2" || u.host == "localhost")) {
+                    false
+                } else {
+                    runCatching { startActivity(Intent(Intent.ACTION_VIEW, u)) }
+                    true
+                }
+            }
+            override fun onPageFinished(view: WebView, u: String?) {
+                initialLink?.let { injectLink(it); initialLink = null }
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        extractUrl(intent)?.let { link ->
-            pendingLink = link
-            // Halaman belum tentu selesai load; coba inject, kalau belum tunggu onLoad end
-            injectLink(link)
-        }
+        try {
+            extractUrl(intent)?.let { link ->
+                pendingLink = link
+                injectLink(link)
+            }
+        } catch (_: Exception) { }
     }
 
     override fun onResume() {
         super.onResume()
-        pendingLink?.let { injectLink(it) }
+        try { pendingLink?.let { injectLink(it) } } catch (_: Exception) { }
     }
 
     private fun injectLink(link: String) {
-        val json = org.json.JSONStringer().value(link).toString()
-        web.evaluateJavascript(
-            "window.__GARP_SHARED_LINK = $json; window.dispatchEvent(new Event('garp-shared-link'));", null
-        )
+        try {
+            val json = org.json.JSONObject.quote(link)
+            web.post {
+                try {
+                    web.evaluateJavascript(
+                        "window.__GARP_SHARED_LINK = $json; try { window.dispatchEvent(new Event('garp-shared-link')); } catch (e) {}", null
+                    )
+                } catch (_: Exception) { }
+            }
+        } catch (_: Exception) { }
         pendingLink = null
     }
 
