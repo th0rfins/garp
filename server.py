@@ -196,7 +196,7 @@ def map_state(d: dict) -> dict:
     active_next = None
     for st in steps:
         codes = st.get("bookingCodes") or []
-        if st.get("state") == "ACTIVE" and st.get("isDropOff") and booking_code not in codes:
+        if st.get("state") == "ACTIVE" and st.get("isDropOff") and booking.get("bookingCode") not in codes:
             active_next = True
             break
     multi_stop = bool(active_next) or len({c for st in steps for c in (st.get("bookingCodes") or [])}) > 1
@@ -317,7 +317,7 @@ def _add_event(oid: str, kind: str, text: str):
 async def poller():
     client = httpx.AsyncClient()
     while True:
-        active = [oid for oid, o in _orders.items() if o.get("status") in ("prepare", "ontheway")]
+        active = [oid for oid, o in _orders.items() if o.get("status") in ("prepare", "allocated", "ontheway")]
         for oid in active:
             try:
                 await poll_once(client, oid)
@@ -334,6 +334,13 @@ async def poller():
                     o["error"] = str(e.detail)
                     _save_order(o)
                     await _emit(oid)
+            except Exception as e:
+                # JANGAN biarkan satu order buruk mematikan loop poller
+                o = _orders.get(oid)
+                if o:
+                    o["error"] = f"poll error: {e}"
+                    o["poll_failures"] = (o.get("poll_failures") or 0) + 1
+                    _save_order(o)
         asleep = POLL_INTERVAL
         for oid in active:
             b = _orders.get(oid, {}).get("poll_backoff")
