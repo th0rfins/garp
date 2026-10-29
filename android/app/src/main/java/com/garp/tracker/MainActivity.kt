@@ -3,6 +3,7 @@ package com.garp.tracker
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.webkit.JavascriptInterface
@@ -55,12 +56,19 @@ class MainActivity : ComponentActivity() {
         web.visibility = View.VISIBLE
         web.loadUrl(url)
 
+        web.setOnLongClickListener {
+            showServerDialog()
+            true
+        }
+
         pendingLink = try { extractUrl(intent) } catch (_: Exception) { null }
         pendingLink?.let { initialLink = it }
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val u = request.url
-                return if (u.host != null && (u.host!!.endsWith("projectpop.xyz") || u.host == "10.0.2.2" || u.host == "localhost")) {
+                val cur = Uri.parse(getServerUrlSafe())
+                val sameHost = u.host != null && (u.host == cur.host || u.host!!.endsWith(".grab.com") || u.host!!.endsWith(".openfreemap.org"))
+                return if (sameHost) {
                     false
                 } else {
                     runCatching { startActivity(Intent(Intent.ACTION_VIEW, u)) }
@@ -87,6 +95,38 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         try { pendingLink?.let { injectLink(it) } } catch (_: Exception) { }
+    }
+
+    private fun getServerUrlSafe(): String =
+        getPreferences(Context.MODE_PRIVATE).getString(PREF_SERVER_URL, null) ?: DEFAULT_URL
+
+    private fun showServerDialog() {
+        try {
+            val input = android.widget.EditText(this).apply {
+                setText(getServerUrlSafe())
+                hint = "https://grab.projectpop.xyz"
+                setSingleLine(true)
+                setPadding(48, 40, 48, 16)
+            }
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Server URL")
+                .setMessage("Long-press di mana saja untuk buka dialog ini.")
+                .setView(input)
+                .setPositiveButton("Simpan") { _, _ ->
+                    var u = input.text.toString().trim()
+                    if (u.isNotEmpty()) {
+                        if (!u.startsWith("http")) u = "https://$u"
+                        saveServerUrl(u)
+                        web.loadUrl(u)
+                    }
+                }
+                .setNegativeButton("Batal", null)
+                .show()
+        } catch (_: Exception) { }
+    }
+
+    private fun saveServerUrl(u: String) {
+        getPreferences(Context.MODE_PRIVATE).edit().putString(PREF_SERVER_URL, u).apply()
     }
 
     private fun injectLink(link: String) {
