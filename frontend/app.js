@@ -135,7 +135,33 @@ function setPage(page) {
   $$('.rail-logo').forEach((n) => n.classList.toggle('active', page === 'add'));
   if (page === 'map') setTimeout(() => { initBigMap(); if (bigMap) bigMap.resize(); }, 60);
   if (page === 'analytics') setTimeout(initCharts, 80);
-  refresh();
+  /* ---------- Android WebView bridge: shared link langsung masuk ---------- */
+async function consumeShared() {
+  let link = null;
+  try { link = window.AndroidBridge?.consumeSharedLink?.() || null; } catch (e) { /* not in webview */ }
+  if (!link) link = window.__GARP_SHARED_LINK || null;
+  if (!link) return false;
+  window.__GARP_SHARED_LINK = null;
+  try {
+    await API.addLink(link);
+    await refresh();
+    setPage('map');
+    const first = ORDERS[0];
+    if (first) selectOrder(first.id);
+    return true;
+  } catch (e) {
+    setPage('add');
+    const inp = document.querySelector('#add-input');
+    const res = document.querySelector('#add-result');
+    if (inp) inp.value = link;
+    if (res) res.textContent = 'Gagal menambah otomatis — cek link lalu tekan Tambah.';
+    return false;
+  }
+}
+window.addEventListener('garp-shared-link', () => { consumeShared(); });
+consumeShared();
+
+refresh();
 }
 $$('.rail-btn, .rail-logo').forEach((n) => n.addEventListener('click', () => setPage(n.dataset.page)));
 $$('.mobilebar button').forEach((n) => n.addEventListener('click', () => setPage(n.dataset.page)));
