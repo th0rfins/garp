@@ -1,0 +1,19 @@
+services:
+  garp:
+    build: .
+    container_name: garp
+    ports:
+      - "3000:3000"
+    environment:
+      TZ: Asia/Jakarta   # UI menampilkan waktu WIB
+    volumes:
+      - garp-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/stats"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  garp-data:

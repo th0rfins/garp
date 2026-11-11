@@ -1,0 +1,14 @@
+{
+  "name": "garp",
+  "version": "1.0.0",
+  "description": "GARP — Orders tracker (self-hosted rebuild: Node + SQLite via node:sqlite, zero npm dependencies)",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "import:live": "node scripts/import-from-live.mjs"
+  },
+  "license": "UNLICENSED"
+}
